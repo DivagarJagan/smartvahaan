@@ -1,0 +1,51 @@
+# Backend files and directories
+backend/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment files (will be set in Vercel dashboard)
+.env
+.env.local
+.env.*.local
+
+# Documentation files
+docs/
+*.md
+!frontend/README.md
+
+# Mock data
+mock-data/
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Batch and script files
+*.bat
+*.ps1
+*.sh
+
+# Images (except those in frontend)
+*.png
+*.jpg
+*.jpeg
+!frontend/**/*.png
+!frontend/**/*.jpg
+!frontend/**/*.jpeg
+
+# Test files
+tests/
+**/test_*.py
+**/*_test.py

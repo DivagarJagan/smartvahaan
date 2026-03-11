@@ -1,0 +1,31 @@
+services:
+  # Backend Web Service
+  - type: web
+    name: smartvahan-backend
+    runtime: python
+    region: oregon
+    plan: free
+    branch: main
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        value: sqlite:///./smartvahan.db
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 60
+      - key: APP_NAME
+        value: SmartVahaan AI Vehicle Maintenance
+      # IMPORTANT: Update this after deploying frontend to Vercel!
+      # Replace 'smartvahan.vercel.app' with your actual Vercel URL
+      - key: CORS_ORIGINS
+        value: http://localhost:5173,https://smartvahan.vercel.app
+      - key: PYTHON_VERSION
+        value: 3.11.0

@@ -1,0 +1,1 @@
+export const isValidDistance = (km) => km > 0 && km < 500000;

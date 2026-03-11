@@ -1,0 +1,369 @@
+import { useState } from "react";
+import vehicleService from "../services/vehicleService";
+import { useNavigate } from "react-router-dom";
+import { useTheme } from "../context/ThemeContext";
+import { trackActivity, ActivityTypes } from "../utils/activityTracker";
+
+const VehicleDetails = () => {
+  const navigate = useNavigate();
+  const { colors } = useTheme();
+  const [vehicle, setVehicle] = useState({
+    make: "",
+    model: "",
+    year: new Date().getFullYear(),
+    fuelType: "Petrol",
+    city: "",
+    mileage: "",
+    last_service_date: "",
+    usage_pattern: "City",
+  });
+  const [loading, setLoading] = useState(false);
+
+  const handleChange = (e) =>
+    setVehicle({ ...vehicle, [e.target.name]: e.target.value });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await vehicleService.saveVehicle(vehicle);
+      
+      // Track vehicle addition activity
+      trackActivity(
+        ActivityTypes.VEHICLE_ADDED,
+        'Vehicle Added',
+        `Added ${vehicle.make} ${vehicle.model} (${vehicle.year})`,
+        { make: vehicle.make, model: vehicle.model, year: vehicle.year }
+      );
+      
+      navigate('/maintenance');
+    } catch (error) {
+      alert("Failed to save vehicle details");
+      setLoading(false);
+    }
+  };
+
+  const carMakes = [
+    "Maruti Suzuki", "Hyundai", "Tata", "Mahindra", "Honda", "Toyota", 
+    "Kia", "MG", "Volkswagen", "Skoda", "Nissan", "Renault", "Ford"
+  ];
+
+  const cities = [
+    "Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai", "Kolkata",
+    "Pune", "Ahmedabad", "Jaipur", "Surat", "Lucknow", "Kanpur", "Indore"
+  ];
+
+  const styles = getStyles(colors);
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.wrapper}>
+        <div style={styles.header}>
+          <h1 style={styles.title}>Vehicle Registration</h1>
+          <p style={styles.subtitle}>Enter your vehicle details for maintenance analysis</p>
+        </div>
+
+        <div style={styles.formCard}>
+          <form onSubmit={handleSubmit}>
+            <div style={styles.formGrid}>
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Manufacturer</label>
+                <select 
+                  name="make" 
+                  value={vehicle.make}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                >
+                  <option value="">Select manufacturer</option>
+                  {carMakes.map(make => (
+                    <option key={make} value={make}>{make}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Model</label>
+                <input 
+                  name="model" 
+                  placeholder="Enter model name"
+                  value={vehicle.model}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Year</label>
+                <input 
+                  name="year" 
+                  type="number"
+                  min="1990"
+                  max={new Date().getFullYear()}
+                  value={vehicle.year}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Fuel Type</label>
+                <select 
+                  name="fuelType" 
+                  value={vehicle.fuelType}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                >
+                  <option value="Petrol">Petrol</option>
+                  <option value="Diesel">Diesel</option>
+                  <option value="CNG">CNG</option>
+                  <option value="Electric">Electric</option>
+                  <option value="Hybrid">Hybrid</option>
+                </select>
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>City</label>
+                <select 
+                  name="city" 
+                  value={vehicle.city}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                >
+                  <option value="">Select city</option>
+                  {cities.map(city => (
+                    <option key={city} value={city}>{city}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Current Mileage (km)</label>
+                <input 
+                  name="mileage" 
+                  type="number"
+                  placeholder="e.g., 45000"
+                  value={vehicle.mileage}
+                  onChange={handleChange}
+                  style={styles.input}
+                  required
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Last Service Date</label>
+                <input 
+                  name="last_service_date" 
+                  type="date"
+                  value={vehicle.last_service_date}
+                  onChange={handleChange}
+                  style={styles.input}
+                />
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Usage Pattern</label>
+                <select 
+                  name="usage_pattern" 
+                  value={vehicle.usage_pattern}
+                  onChange={handleChange}
+                  style={styles.input}
+                >
+                  <option value="City">City Driving</option>
+                  <option value="Highway">Highway Driving</option>
+                  <option value="Mixed">Mixed Driving</option>
+                  <option value="Regular">Regular Use</option>
+                </select>
+              </div>
+            </div>
+
+            <button type="submit" style={styles.button} disabled={loading}>
+              {loading ? 'Processing...' : 'Continue to Analysis'}
+            </button>
+          </form>
+        </div>
+
+        <div style={styles.infoGrid}>
+          <div style={styles.infoCard}>
+            <div style={styles.infoNumber}>01</div>
+            <h3 style={styles.infoTitle}>AI Analysis</h3>
+            <p style={styles.infoText}>Get intelligent insights about your vehicle's health</p>
+          </div>
+          <div style={styles.infoCard}>
+            <div style={styles.infoNumber}>02</div>
+            <h3 style={styles.infoTitle}>Predictive Alerts</h3>
+            <p style={styles.infoText}>Receive timely maintenance recommendations</p>
+          </div>
+          <div style={styles.infoCard}>
+            <div style={styles.infoNumber}>03</div>
+            <h3 style={styles.infoTitle}>Cost Estimates</h3>
+            <p style={styles.infoText}>Know expected service costs in advance</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const getStyles = (colors) => ({
+  container: {
+    minHeight: '100vh',
+    background: colors.background,
+    padding: '40px 20px',
+    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  },
+  wrapper: {
+    maxWidth: 1200,
+    margin: '0 auto',
+  },
+  header: {
+    marginBottom: 48,
+    textAlign: 'center',
+  },
+  title: {
+    fontSize: 36,
+    fontWeight: 600,
+    color: colors.text,
+    margin: '0 0 12px 0',
+    letterSpacing: '-0.5px',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    margin: 0,
+  },
+  formCard: {
+    background: colors.card,
+    borderRadius: 8,
+    padding: '48px',
+    marginBottom: 48,
+    boxShadow: `0 1px 3px ${colors.shadow}`,
+    border: `1px solid ${colors.border}`,
+  },
+  formGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+    gap: 24,
+    marginBottom: 32,
+  },
+  inputGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: 500,
+    color: colors.text,
+  },
+  input: {
+    padding: '12px 16px',
+    fontSize: 15,
+    border: `1px solid ${colors.border}`,
+    borderRadius: 4,
+    outline: 'none',
+    fontFamily: 'inherit',
+    transition: 'border-color 0.2s',
+    background: colors.backgroundSecondary,
+    color: colors.text,
+  },
+  button: {
+    width: '100%',
+    padding: '16px',
+    background: colors.buttonPrimary,
+    color: colors.buttonPrimaryText,
+    border: 'none',
+    borderRadius: 4,
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'opacity 0.2s',
+  },
+  infoGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+    gap: 24,
+  },
+  infoCard: {
+    background: colors.card,
+    padding: 32,
+    borderRadius: 8,
+    boxShadow: `0 1px 3px ${colors.shadow}`,
+    border: `1px solid ${colors.border}`,
+  },
+  infoNumber: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: colors.textSecondary,
+    marginBottom: 16,
+  },
+  infoTitle: {
+    fontSize: 20,
+    fontWeight: 600,
+    color: colors.text,
+    margin: '0 0 12px 0',
+  },
+  infoText: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    lineHeight: 1.6,
+    margin: 0,
+  },
+});
+
+// Hover effects and mobile responsive styles
+if (typeof document !== 'undefined') {
+  const styleSheet = document.createElement("style");
+  styleSheet.textContent = `
+    input:focus, select:focus {
+      opacity: 0.9;
+    }
+    button[type="submit"]:hover:not(:disabled) {
+      opacity: 0.9;
+    }
+    button[type="submit"]:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        padding: 20px 16px !important;
+      }
+      .header {
+        margin-bottom: 32px !important;
+      }
+      .title {
+        font-size: 28px !important;
+      }
+      .subtitle {
+        font-size: 14px !important;
+      }
+      .formCard {
+        padding: 24px !important;
+        margin-bottom: 32px !important;
+      }
+      .formGrid {
+        grid-template-columns: 1fr !important;
+        gap: 20px !important;
+      }
+      .infoGrid {
+        grid-template-columns: 1fr !important;
+        gap: 16px !important;
+      }
+      .infoCard {
+        padding: 24px !important;
+      }
+    }
+  `;
+  if (!document.head.querySelector('[data-vehicle-styles]')) {
+    styleSheet.setAttribute('data-vehicle-styles', 'true');
+    document.head.appendChild(styleSheet);
+  }
+}
+
+export default VehicleDetails;

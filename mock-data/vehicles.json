@@ -1,0 +1,34 @@
+[
+    {
+      "id": 101,
+      "user_id": 2,
+      "model": "Hyundai i20",
+      "fuel": "Petrol",
+      "city": "Chennai",
+      "km": 42000
+    },
+    {
+      "id": 102,
+      "user_id": 2,
+      "model": "Maruti Swift",
+      "fuel": "Diesel",
+      "city": "Bengaluru",
+      "km": 68000
+    },
+    {
+      "id": 103,
+      "user_id": 3,
+      "model": "Tata Nexon",
+      "fuel": "EV",
+      "city": "Coimbatore",
+      "km": 30000
+    },
+    {
+      "id": 104,
+      "user_id": 3,
+      "model": "Mahindra XUV300",
+      "fuel": "Diesel",
+      "city": "Madurai",
+      "km": 85000
+    }
+  ]
