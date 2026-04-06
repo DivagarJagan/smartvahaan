@@ -20,12 +20,15 @@ export const AuthProvider = ({ children }) => {
         ...data,
         first_name: profile.first_name,
         last_name: profile.last_name,
-        phone: profile.phone
+        phone: profile.phone,
+        is_premium: profile.is_premium || false,
+        premium_until: profile.premium_until || null
       };
       setUser(fullUserData);
       
       // Store user info in localStorage for feedback service
       localStorage.setItem('userEmail', fullUserData.email);
+      localStorage.setItem('isPremium', fullUserData.is_premium.toString());
       
       // Generate full name or default from email
       const userName = fullUserData.first_name && fullUserData.last_name 
@@ -63,6 +66,7 @@ export const AuthProvider = ({ children }) => {
       console.error('Failed to fetch profile:', profileError);
       setUser(data);
       localStorage.setItem('userEmail', data.email);
+      localStorage.setItem('isPremium', 'false');
       const defaultName = data.email.split('@')[0].replace(/[._-]/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
       localStorage.setItem('userName', defaultName);
       initializeMemberDate();

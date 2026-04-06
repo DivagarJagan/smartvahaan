@@ -83,14 +83,34 @@ def get_all_feedback(
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    feedbacks = db.query(Feedback).order_by(Feedback.created_at.desc()).offset(skip).limit(limit).all()
+    from app.models.user import User as UserModel
+    feedbacks = db.query(Feedback, UserModel).join(
+        UserModel, Feedback.user_id == UserModel.id, isouter=True
+    ).order_by(Feedback.created_at.desc()).offset(skip).limit(limit).all()
     total = db.query(Feedback).count()
     
     # Calculate statistics
     avg_rating = db.query(func.avg(Feedback.rating)).scalar() or 0
     
+    result = []
+    for fb, fb_user in feedbacks:
+        result.append({
+            "id": fb.id,
+            "user_id": fb.user_id,
+            "user_name": f"{fb_user.first_name or ''} {fb_user.last_name or ''}".strip() if fb_user else "Unknown",
+            "user_email": fb_user.email if fb_user else "Unknown",
+            "vehicle_info": None,  # vehicles not linked to feedback directly
+            "rating": fb.rating,
+            "category": fb.category,
+            "message": fb.message,
+            "status": fb.status,
+            "created_at": fb.created_at,
+            "updated_at": fb.updated_at,
+            "admin_response": fb.admin_response,
+        })
+    
     return {
-        "feedbacks": feedbacks,
+        "feedbacks": result,
         "total": total,
         "average_rating": round(avg_rating, 2),
         "pending_count": db.query(Feedback).filter(Feedback.status == "pending").count()

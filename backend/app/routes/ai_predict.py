@@ -1,15 +1,129 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from app.core.dependencies import get_current_user
+from app.core.dependencies import get_db
 from app.data.vehicles_data import VEHICLES # type: ignore
 from app.services.gemini_service import calculate_maintenance_priority, generate_maintenance_analysis
 import google.generativeai as genai # type: ignore
 import os
+from pydantic import BaseModel # type: ignore
+from sqlalchemy.orm import Session # type: ignore
+from app.models.user import User
 
 router = APIRouter(prefix="/ai", tags=["AI Predictions"])
 
-# Configure Gemini AI
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp"))
+# ── Configure Gemini AI at module load ─────────────────────────────────────────
+_gemini_api_key = os.getenv("GEMINI_API_KEY")
+_gemini_model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+if _gemini_api_key:
+    genai.configure(api_key=_gemini_api_key)
+model = genai.GenerativeModel(_gemini_model_name)
+
+FREE_CHAT_LIMIT = 10
+
+
+class ChatHistoryItem(BaseModel):
+    role: str
+    text: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatHistoryItem] = []
+
+
+def _get_db_user(current_user: dict, db: Session) -> User:
+    user = db.query(User).filter(User.email == current_user.get("email")).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+def _usage_payload(user: User) -> dict:
+    used = int(getattr(user, "ai_chat_usage_count", 0) or 0)
+    is_premium = bool(getattr(user, "is_premium", False))
+    remaining = max(0, FREE_CHAT_LIMIT - used) if not is_premium else None
+    return {
+        "is_premium": is_premium,
+        "used": used,
+        "free_limit": FREE_CHAT_LIMIT,
+        "remaining": remaining,
+    }
+
+
+@router.get("/chat/usage")
+def get_chat_usage(
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db_user = _get_db_user(user, db)
+    return _usage_payload(db_user)
+
+
+@router.post("/chat")
+def chat_with_ai(
+    payload: ChatRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db_user = _get_db_user(user, db)
+    usage = _usage_payload(db_user)
+
+    if not usage["is_premium"] and usage["used"] >= FREE_CHAT_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "FREE_LIMIT_REACHED",
+                "message": "Free AI chat limit reached. Upgrade to Premium for unlimited chats.",
+                "usage": usage,
+            },
+        )
+
+    prompt_message = payload.message.strip()
+    if not prompt_message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="AI service is not configured on backend")
+
+    recent_history = payload.history[-6:]
+    history_lines = []
+    for item in recent_history:
+        role = "Assistant" if item.role == "ai" else "User"
+        history_lines.append(f"{role}: {item.text}")
+
+    prompt = "\n".join([
+        "You are SmartVahaan AI, an automotive assistant focused on four-wheelers,",
+        "maintenance troubleshooting, and practical advice.",
+        "Reply in the same language as the user message. Keep responses concise and useful.",
+        "",
+        "Recent conversation:",
+        *history_lines,
+        "",
+        f"User: {prompt_message}",
+        "Assistant:",
+    ])
+
+    try:
+        response = model.generate_content(prompt)
+        reply_text = (response.text or "").strip()
+        if not reply_text:
+            reply_text = "I couldn't generate a response this time. Please try again."
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI provider error: {str(exc)}")
+
+    if not usage["is_premium"]:
+        current_used = int(getattr(db_user, "ai_chat_usage_count", 0) or 0)
+        setattr(db_user, "ai_chat_usage_count", current_used + 1)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+
+    return {
+        "reply": reply_text,
+        "usage": _usage_payload(db_user),
+    }
+
 
 @router.get("/maintenance/suggestions")
 def get_maintenance_suggestions(

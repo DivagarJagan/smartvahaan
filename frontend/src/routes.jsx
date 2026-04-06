@@ -9,6 +9,8 @@ import Feedback from "./pages/Feedback";
 import UserHistory from "./pages/UserHistory";
 import NotAuthorized from "./pages/NotAuthorized";
 import AccessDenied from "./pages/AccessDenied";
+import PremiumFeatures from "./pages/PremiumFeatures";
+import GarageMapPage from "./pages/GarageMapPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 const RoutesConfig = () => (
@@ -48,6 +50,24 @@ const RoutesConfig = () => (
       element={
         <ProtectedRoute role="user">
           <UserHistory />
+        </ProtectedRoute>
+      }
+    />
+
+    <Route
+      path="/premium-features"
+      element={
+        <ProtectedRoute role="user">
+          <PremiumFeatures />
+        </ProtectedRoute>
+      }
+    />
+
+    <Route
+      path="/garage-map"
+      element={
+        <ProtectedRoute role="user" premium>
+          <GarageMapPage />
         </ProtectedRoute>
       }
     />

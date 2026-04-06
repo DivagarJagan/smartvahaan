@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Any, Optional
 from app.core.dependencies import get_current_user, get_db
-from app.data.vehicles_data import VEHICLES
 from app.models.user import User
+from app.models.vehicle import Vehicle as VehicleModel
 from app.models.feedback import Feedback
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -38,8 +38,8 @@ def admin_dashboard(
     ).count()
     admin_count = db.query(User).filter(User.role == "admin").count()
     
-    # Vehicle statistics
-    total_vehicles = len(VEHICLES)
+    # Vehicle statistics - query from DB
+    total_vehicles = db.query(VehicleModel).count()
     
     # Feedback statistics
     total_feedback = db.query(Feedback).count()
@@ -68,11 +68,26 @@ def admin_dashboard(
         },
         "recent_activity": {
             "recent_users": [
-                {"id": u.id, "email": u.email, "created_at": u.created_at, "role": u.role}
+                {
+                    "id": u.id, 
+                    "email": u.email, 
+                    "first_name": u.first_name,
+                    "last_name": u.last_name,
+                    "created_at": u.created_at, 
+                    "role": u.role,
+                    "vehicle_count": db.query(VehicleModel).filter(VehicleModel.user_id == u.id).count()
+                }
                 for u in recent_users
             ],
             "recent_feedback": [
-                {"id": f.id, "rating": f.rating, "category": f.category, "created_at": f.created_at}
+                {
+                    "id": f.id, 
+                    "rating": f.rating, 
+                    "category": f.category, 
+                    "message": f.message,
+                    "user_email": db.query(User).filter(User.id == f.user_id).first().email if f.user_id else "Anonymous",
+                    "created_at": f.created_at
+                }
                 for f in recent_feedback
             ]
         },
@@ -127,8 +142,21 @@ def get_user_details(
     # Get user's feedback
     user_feedbacks = db.query(Feedback).filter(Feedback.user_id == user_id).all()
     
-    # Get user's vehicles (from VEHICLES list)
-    user_vehicles = [v for v in VEHICLES if v.get("user_email") == target_user.email]
+    # Get user's vehicles (from DB)
+    vehicles = db.query(VehicleModel).filter(VehicleModel.user_id == user_id).all()
+    user_vehicles = [
+        {
+            "id": v.id,
+            "make": v.make,
+            "model": v.model,
+            "year": v.year,
+            "fuel_type": v.fuel_type,
+            "city": v.city,
+            "mileage": v.mileage,
+            "last_service_date": v.last_service_date
+        }
+        for v in vehicles
+    ]
     
     return {
         "user": {
@@ -143,7 +171,7 @@ def get_user_details(
         "statistics": {
             "total_vehicles": len(user_vehicles),
             "total_feedback": len(user_feedbacks),
-            "average_rating": round(sum(f.rating for f in user_feedbacks) / len(user_feedbacks), 2) if user_feedbacks else 0  # type: ignore
+            "average_rating": round(sum(f.rating for f in user_feedbacks) / len(user_feedbacks), 2) if user_feedbacks else 0
         },
         "vehicles": user_vehicles,
         "feedback_history": [
@@ -215,22 +243,68 @@ def delete_user(
     return {"message": "User and associated data deleted successfully"}
 
 @router.get("/vehicles")
-def get_all_vehicles(user: Any = Depends(get_current_user)):
-    """Get all vehicles for admin"""
+def get_all_vehicles(
+    db: Session = Depends(get_db),
+    user: Any = Depends(get_current_user),
+    skip: int = 0,
+    limit: int = 50
+):
+    """Get all vehicles for admin from the database"""
     is_admin(user)
-    return {"vehicles": VEHICLES, "total": len(VEHICLES)}
+    total = db.query(VehicleModel).count()
+    
+    # Auto-seed demo vehicles if none exist to satisfy "give any demo model vehicle"
+    if total == 0:
+        first_user = db.query(User).first()
+        if first_user:
+            demo_vehicles = [
+                VehicleModel(user_id=first_user.id, make="Hyundai", model="Creta", year=2024, fuel_type="Petrol", city="Delhi", mileage=8500, registration_number="DL-01-AB-1234", last_service_date=datetime.utcnow() - timedelta(days=45)),
+                VehicleModel(user_id=first_user.id, make="Tata", model="Nexon", year=2023, fuel_type="Diesel", city="Mumbai", mileage=15200, registration_number="MH-02-XY-9876", last_service_date=datetime.utcnow() - timedelta(days=120))
+            ]
+            db.add_all(demo_vehicles)
+            db.commit()
+            total = db.query(VehicleModel).count()
+
+    vehicles = db.query(VehicleModel).offset(skip).limit(limit).all()
+    
+    result = []
+    for v in vehicles:
+        # Get owner details
+        owner = db.query(User).filter(User.id == v.user_id).first()
+        result.append({
+            "id": v.id,
+            "user_id": v.user_id,
+            "owner_name": f"{owner.first_name or ''} {owner.last_name or ''}".strip() if owner else "Unknown",
+            "owner_email": owner.email if owner else "Unknown",
+            "make": getattr(v, "make", "N/A"),
+            "model": v.model or "N/A",
+            "year": getattr(v, "year", "N/A"),
+            "odometer": getattr(v, "mileage", 0),
+            "registration_number": getattr(v, "registration_number", "N/A"),
+            "city": getattr(v, "city", "N/A"),
+            "fuel_type": v.fuel_type or "N/A",
+            "last_service": getattr(v, "last_service_date", None),
+            "created_at": v.created_at,
+        })
+    return {"vehicles": result, "total": total}
 
 @router.delete("/vehicles/{vehicle_id}")
-def delete_vehicle(vehicle_id: int, user: Any = Depends(get_current_user)):
-    """Delete a vehicle"""
+def delete_vehicle(
+    vehicle_id: int,
+    db: Session = Depends(get_db),
+    user: Any = Depends(get_current_user)
+):
+    """Delete a vehicle from the database"""
     is_admin(user)
-    if vehicle_id >= len(VEHICLES):
+    vehicle = db.query(VehicleModel).filter(VehicleModel.id == vehicle_id).first()
+    if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     
-    deleted_vehicle = VEHICLES.pop(vehicle_id)
+    db.delete(vehicle)
+    db.commit()
     return {
         "message": "Vehicle deleted successfully",
-        "vehicle": deleted_vehicle
+        "vehicle_id": vehicle_id
     }
 
 @router.get("/stats")
@@ -250,8 +324,8 @@ def get_statistics(
             ).count()
         },
         "vehicles": {
-            "total": len(VEHICLES),
-            "active": len(VEHICLES)
+            "total": db.query(VehicleModel).count(),
+            "active": db.query(VehicleModel).count()
         },
         "feedback": {
             "total": db.query(Feedback).count(),

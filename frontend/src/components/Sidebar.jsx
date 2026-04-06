@@ -4,6 +4,7 @@ import { useTheme } from "../context/ThemeContext";
 import { useState, useEffect } from "react";
 import vehicleService from "../services/vehicleService";
 import serviceHistoryService from "../services/serviceHistoryService";
+import AiAssistant from "./AiAssistant";
 
 const Sidebar = () => {
   const navigate = useNavigate();
@@ -14,6 +15,7 @@ const Sidebar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [vehicleCount, setVehicleCount] = useState(0);
   const [checksCount, setChecksCount] = useState(0);
+  const [aiOpen, setAiOpen] = useState(false);
 
   if (!user) return null;
 
@@ -25,12 +27,12 @@ const Sidebar = () => {
       { path: "/vehicle", icon: "🚗", label: "My Vehicle", color: colors.brand },
       { path: "/maintenance", icon: "🔧", label: "Maintenance", color: colors.brand },
       { path: "/feedback", icon: "💬", label: "Feedback", color: colors.brand },
-      { path: "/history", icon: "📊", label: "My History", color: colors.brand },
+      { path: "/premium-features", icon: "⭐", label: "Premium", color: "#FFD700" },
     ] : []),
     ...(user.role === "admin" ? [
       { path: "/admin", icon: "📊", label: "Dashboard", color: colors.brand },
-      { path: "/users", icon: "👥", label: "Users", color: colors.brand },
-      { path: "/reports", icon: "📈", label: "Reports", color: colors.brand },
+      { path: "/admin?tab=users", icon: "👥", label: "User Management", color: colors.brand },
+      { path: "/admin?tab=vehicles", icon: "🚗", label: "Vehicle Management", color: colors.brand },
     ] : []),
   ];
 
@@ -87,11 +89,21 @@ const Sidebar = () => {
               </div>
             )}
           </div>
+          {/* Desktop collapse button */}
           <button 
             onClick={() => setCollapsed(!collapsed)}
-            style={styles.collapseButton}
+            style={{...styles.collapseButton, display: undefined}}
+            className="collapseButton"
           >
             {collapsed ? '→' : '←'}
+          </button>
+          {/* Mobile close button */}
+          <button 
+            onClick={() => setMobileOpen(false)}
+            style={styles.mobileCloseButton}
+            className="mobileCloseButton"
+          >
+            ✕
           </button>
         </div>
 
@@ -165,20 +177,15 @@ const Sidebar = () => {
           <div style={styles.helpIcon}>💡</div>
           <div style={styles.helpTitle}>Need Help?</div>
           <div style={styles.helpText}>
-            Our AI assistant is here to guide you
+            If you have any queries, please drop them in the feedback section.
           </div>
-          <button 
-            style={styles.helpButton}
-            onClick={() => window.location.href = 'mailto:admin@smartvahaan.com'}
-          >
-            Get Support
-          </button>
           <div style={styles.adminEmail}>
             📧 admin@smartvahaan.com
           </div>
         </div>
       )}
     </aside>
+    {user && <AiAssistant isOpen={aiOpen} onClose={() => setAiOpen(false)} />}
     </>
   );
 };
@@ -210,7 +217,7 @@ const getStyles = (colors, collapsed) => ({
     bottom: 0,
     background: 'rgba(0,0,0,0.5)',
     zIndex: 999,
-    display: 'none',
+    backdropFilter: 'blur(2px)',
   },
   logoSection: {
     display: 'flex',
@@ -347,12 +354,12 @@ const getStyles = (colors, collapsed) => ({
     cursor: 'pointer',
     transition: 'all 0.3s ease',
     textAlign: 'left',
-    borderLeft: '4px solid transparent',
+    borderLeft: `4px solid transparent`,
   },
   menuItemActive: {
     color: colors.text,
     background: colors.backgroundSecondary,
-    borderLeftColor: colors.brand,
+    borderLeft: `4px solid ${colors.brand}`,
     fontWeight: '600',
   },
   menuIcon: {
@@ -430,6 +437,21 @@ const getStyles = (colors, collapsed) => ({
     color: colors.textSecondary,
     textAlign: 'center',
   },
+  mobileCloseButton: {
+    background: 'rgba(255,255,255,0.1)',
+    border: '1px solid rgba(255,255,255,0.2)',
+    color: 'inherit',
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    cursor: 'pointer',
+    fontSize: 16,
+    display: 'none',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.3s ease',
+    flexShrink: 0,
+  },
 });
 
 // Inject hover and mobile styles
@@ -466,16 +488,18 @@ if (typeof document !== 'undefined' && !document.querySelector('[data-sidebar-st
     @media (max-width: 768px) {
       aside {
         transform: translateX(-100%);
-        width: 250px !important;
+        width: 280px !important;
+        box-shadow: 4px 0 30px rgba(0,0,0,0.3) !important;
+        z-index: 1001 !important;
       }
       aside[style*="translateX(0)"] {
         transform: translateX(0) !important;
       }
-      .overlay {
-        display: block !important;
-      }
       .collapseButton {
         display: none !important;
+      }
+      .mobileCloseButton {
+        display: flex !important;
       }
     }
   `;

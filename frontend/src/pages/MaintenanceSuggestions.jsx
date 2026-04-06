@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import aiService from "../services/aiService";
+import vehicleService from "../services/vehicleService";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { useTheme } from "../context/ThemeContext";
 import { trackActivity, ActivityTypes } from "../utils/activityTracker";
@@ -9,6 +10,8 @@ const MaintenanceSuggestions = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [daysProgressed, setDaysProgressed] = useState(0);
+  const [showReport, setShowReport] = useState(false);
+  const [annualReport, setAnnualReport] = useState([]);
   const { colors } = useTheme();
 
   useEffect(() => {
@@ -129,6 +132,46 @@ const MaintenanceSuggestions = () => {
       return `₹${newLow.toLocaleString('en-IN')} - ₹${newHigh.toLocaleString('en-IN')}`;
     }
     return costString;
+  };
+
+  const generateAnnualReport = async () => {
+    try {
+      const vehicles = await vehicleService.getVehicles();
+      let lastDate = new Date(); // default to today
+      
+      if (vehicles && vehicles.length > 0) {
+        // Find first vehicle with a last_service_date
+        const vehicleWithDate = vehicles.find(v => v.lastServiceDate);
+        if (vehicleWithDate && vehicleWithDate.lastServiceDate) {
+          lastDate = new Date(vehicleWithDate.lastServiceDate);
+        }
+      }
+
+      const report = [];
+      const services = [
+        { title: "Quarter 1 Service", type: "Basic Oil & Filter Change + General Inspection" },
+        { title: "Quarter 2 Service", type: "Comprehensive Check & Fluid Top-up" },
+        { title: "Quarter 3 Service", type: "Brake Inspection, Tire Rotation & Alignments" },
+        { title: "Annual Major Service", type: "Full Synthetic Oil, Filters, Fluids & Deep Diagnostics" }
+      ];
+
+      for (let i = 1; i <= 4; i++) {
+        const nextDate = new Date(lastDate);
+        nextDate.setMonth(nextDate.getMonth() + (i * 3));
+        
+        report.push({
+          interval: i * 3,
+          date: nextDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' }),
+          title: services[i-1].title,
+          type: services[i-1].type
+        });
+      }
+
+      setAnnualReport(report);
+      setShowReport(true);
+    } catch (error) {
+      console.error("Error generating report:", error);
+    }
   };
 
   const handleRefresh = () => {
@@ -407,6 +450,32 @@ const MaintenanceSuggestions = () => {
             </div>
           </details>
         )}
+
+        {/* Annual Vehicle Health Report Section */}
+        <div style={styles.reportSection}>
+          <h2 style={styles.sectionTitle}>📅 Annual Vehicle Health Report</h2>
+          <p style={styles.sectionSubtitle}>
+            Generate a full 12-month service schedule based on your last service date, calculated in optimal 3-month intervals.
+          </p>
+          <button onClick={generateAnnualReport} style={styles.reportButton}>
+            Generate Annual Report
+          </button>
+          
+          {showReport && annualReport.length > 0 && (
+            <div style={styles.reportContent}>
+              {annualReport.map((rep, idx) => (
+                <div key={idx} style={styles.reportCard}>
+                  <div style={styles.reportIntervalBadge}>+{rep.interval} Months</div>
+                  <div style={styles.reportDetails}>
+                    <h3 style={styles.reportDate}>{rep.date}</h3>
+                    <div style={styles.reportTitle}>{rep.title}</div>
+                    <div style={styles.reportType}>{rep.type}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Indian Conditions Info */}
         <div style={styles.infoCard}>
@@ -990,6 +1059,71 @@ const getStyles = (colors) => ({
     cursor: 'pointer',
     listStyle: 'none',
     userSelect: 'none',
+  },
+  reportSection: {
+    backgroundColor: colors.card,
+    padding: 30,
+    borderRadius: 8,
+    marginBottom: 24,
+    boxShadow: `0 1px 3px ${colors.shadow}`,
+    border: `1px solid ${colors.border}`,
+  },
+  reportButton: {
+    padding: '12px 24px',
+    backgroundColor: colors.brand,
+    color: colors.brandInverse,
+    border: 'none',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontSize: 15,
+    fontWeight: 600,
+    marginBottom: 20,
+    transition: 'opacity 0.2s',
+  },
+  reportContent: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+    gap: 16,
+    marginTop: 20,
+  },
+  reportCard: {
+    padding: 20,
+    backgroundColor: colors.backgroundSecondary,
+    border: `1px solid ${colors.brand}`,
+    borderRadius: 8,
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative',
+    overflow: 'hidden'
+  },
+  reportIntervalBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: colors.brand,
+    color: colors.brandInverse,
+    padding: '4px 12px',
+    borderBottomLeftRadius: 8,
+    fontSize: 12,
+    fontWeight: 600,
+  },
+  reportDate: {
+    fontSize: 18,
+    color: colors.brand,
+    fontWeight: 700,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  reportTitle: {
+    fontSize: 15,
+    fontWeight: 600,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  reportType: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 1.5,
   },
   error: {
     maxWidth: 600,

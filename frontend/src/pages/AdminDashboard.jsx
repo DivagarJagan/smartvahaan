@@ -1,17 +1,38 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import adminService from '../services/adminService';
 import feedbackService from '../services/feedbackService';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const AdminDashboard = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { colors } = useTheme();
+  const queryParams = new URLSearchParams(location.search);
+  const initialTab = queryParams.get('tab') || 'overview';
+  
   const [dashboard, setDashboard] = useState(null);
   const [users, setUsers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [feedback, setFeedback] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview'); // overview, users, vehicles, feedback
+  const [activeTab, setActiveTab] = useState(initialTab); // overview, users, vehicles, feedback
+
+  // Keep state synced if URL changes
+  useEffect(() => {
+    const tab = queryParams.get('tab');
+    if (tab && ['overview', 'users', 'vehicles', 'feedback'].includes(tab)) {
+      setActiveTab(tab);
+    } else if (!tab) {
+      setActiveTab('overview');
+    }
+  }, [location.search]);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    navigate(`/admin?tab=${tab}`);
+  };
 
   useEffect(() => {
     fetchDashboardData();
@@ -63,7 +84,7 @@ const AdminDashboard = () => {
         {['overview', 'users', 'vehicles', 'feedback'].map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => handleTabChange(tab)}
             style={{
               ...styles(colors).tab,
               ...(activeTab === tab ? styles(colors).tabActive : {})
@@ -118,9 +139,12 @@ const AdminDashboard = () => {
                   <div key={user.id} style={styles(colors).activityItem}>
                     <div style={styles(colors).activityIcon}>👤</div>
                     <div style={styles(colors).activityInfo}>
-                      <div style={styles(colors).activityTitle}>{user.email}</div>
+                      <div style={styles(colors).activityTitle}>
+                        {user.first_name || user.last_name ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : user.email}
+                        {user.first_name || user.last_name ? <span style={{fontWeight: 'normal', color: colors.textSecondary}}> ({user.email})</span> : null}
+                      </div>
                       <div style={styles(colors).activityDate}>
-                        {new Date(user.created_at).toLocaleDateString()} • {user.role}
+                        {new Date(user.created_at).toLocaleDateString()} • {user.role === 'admin' ? 'Admin' : 'User'} • {user.vehicle_count || 0} Vehicles
                       </div>
                     </div>
                   </div>
@@ -138,8 +162,11 @@ const AdminDashboard = () => {
                       <div style={styles(colors).activityTitle}>
                         {'⭐'.repeat(fb.rating)} • {fb.category}
                       </div>
+                      <div style={{fontSize: 13, color: colors.text, margin: '4px 0', fontStyle: 'italic'}}>
+                        "{fb.message}"
+                      </div>
                       <div style={styles(colors).activityDate}>
-                        {new Date(fb.created_at).toLocaleDateString()}
+                        {new Date(fb.created_at).toLocaleDateString()} • {fb.user_email || 'Anonymous'}
                       </div>
                     </div>
                   </div>
@@ -207,12 +234,12 @@ const AdminDashboard = () => {
                     <span style={styles(colors).vehicleValue}>{vehicle.owner_name}</span>
                   </div>
                   <div style={styles(colors).vehicleDetailRow}>
-                    <span style={styles(colors).vehicleLabel}>Registration:</span>
-                    <span style={styles(colors).vehicleValue}>{vehicle.registration_number}</span>
+                    <span style={styles(colors).vehicleLabel}>Fuel Type:</span>
+                    <span style={styles(colors).vehicleValue}>{vehicle.fuel_type}</span>
                   </div>
                   <div style={styles(colors).vehicleDetailRow}>
-                    <span style={styles(colors).vehicleLabel}>Odometer:</span>
-                    <span style={styles(colors).vehicleValue}>{vehicle.odometer.toLocaleString()} km</span>
+                    <span style={styles(colors).vehicleLabel}>Mileage:</span>
+                    <span style={styles(colors).vehicleValue}>{vehicle.odometer} km/l</span>
                   </div>
                   <div style={styles(colors).vehicleDetailRow}>
                     <span style={styles(colors).vehicleLabel}>City:</span>

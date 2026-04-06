@@ -1,5 +1,6 @@
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
+from sqlalchemy import inspect, text # type: ignore
 
 # Import database components first
 from app.database.session import engine
@@ -15,29 +16,28 @@ from app.models.vehicle import Vehicle
 from app.models.feedback import Feedback
 from app.models.service_history import ServiceHistory
 from app.models.maintenance import MaintenanceLog
+from app.models.garage import Garage
+from app.models.subscription import Subscription
 
 # Telemetry models depend on Vehicle, so load them last
-# Temporarily commenting out to debug foreign key issues
-# from app.models.telemetry import (
-#     OBDDevice, TelemetryData, ComponentHealth, 
-#     DriverBehavior, VehicleDTC, MaintenancePrediction
-# )
+from app.models.telemetry import (
+    OBDDevice, TelemetryData, ComponentHealth, 
+    DriverBehavior, VehicleDTC, MaintenancePrediction
+)
 
 # Import model modules for backwards compatibility
 from app.models import (
     user, vehicle, feedback as feedback_model, service_history as service_model,
     maintenance as maintenance_model
 )
-# Temporarily disabled telemetry to fix foreign key issues
-# from app.models import telemetry as telemetry_model
+from app.models import telemetry as telemetry_model
 
 # Import routes AFTER all models are loaded
 from app.routes import (
     auth, vehicles, ai_predict, admin, users, feedback, service_history,
-    predictive_maintenance, email_routes
+    predictive_maintenance, email_routes, subscription, garages
 )
-# Temporarily disabled telemetry route
-# from app.routes import telemetry
+from app.routes import telemetry
 
 import logging
 
@@ -55,9 +55,11 @@ app = FastAPI(
 )
 
 # Configure CORS
+# Make sure your frontend origin is in the .env file
+# Example: CORS_ORIGINS=["http://localhost:5173", "http://127.0.0.1:5173"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.CORS_ORIGINS.split(",") if isinstance(settings.CORS_ORIGINS, str) else settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -72,14 +74,33 @@ app.include_router(feedback.router)
 app.include_router(service_history.router)
 app.include_router(predictive_maintenance.router)
 app.include_router(email_routes.router)
-# Temporarily disabled telemetry route due to foreign key issues
-# app.include_router(telemetry.router)
+app.include_router(subscription.router)
+app.include_router(garages.router)
+app.include_router(telemetry.router)
 
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup"""
     # Create database tables after all models are loaded
     Base.metadata.create_all(bind=engine)
+
+    # Backfill legacy SQLite schemas where users table existed before premium fields were added.
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        existing_columns = {column["name"] for column in inspector.get_columns("users")}
+
+        missing_columns = [
+            ("is_premium", "BOOLEAN DEFAULT 0"),
+            ("premium_until", "DATETIME"),
+            ("ai_chat_usage_count", "INTEGER DEFAULT 0"),
+            ("latitude", "FLOAT"),
+            ("longitude", "FLOAT"),
+        ]
+
+        for column_name, column_type in missing_columns:
+            if column_name not in existing_columns:
+                connection.execute(text(f"ALTER TABLE users ADD COLUMN {column_name} {column_type}"))
+                logger.info("✅ Added missing users.%s column", column_name)
     
     logger.info("="*60)
     logger.info("🚗 SmartVahaan Predictive Maintenance Platform Starting...")
@@ -117,7 +138,7 @@ def root():
     return {
         "status": "running",
         "service": "SmartVahaan API",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "message": "Backend is running successfully!"
     }
 

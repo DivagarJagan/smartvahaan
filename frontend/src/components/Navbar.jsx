@@ -101,6 +101,19 @@ const Navbar = () => {
             >
               My History
             </button>
+
+            <button 
+              onClick={() => { navigate("/premium-features"); setShowMobileMenu(false); }} 
+              style={{
+                ...styles.navButton,
+                ...styles.premiumNavButton,
+                color: isActive('/premium-features') ? '#FFD700' : '#FFA000',
+                background: isActive('/premium-features') ? 'rgba(255,215,0,0.15)' : 'transparent',
+                border: '1px solid rgba(255,215,0,0.4)',
+              }}
+            >
+              ⭐ Premium
+            </button>
           </>
         )}
         
@@ -265,15 +278,20 @@ const styles = {
   centerSection: {
     display: 'flex',
     gap: 8,
+    alignItems: 'center',
   },
   navButton: {
     padding: '8px 16px',
     border: 'none',
-    borderRadius: 4,
+    borderRadius: 6,
     fontSize: 14,
     fontWeight: 500,
     cursor: 'pointer',
     transition: 'all 0.2s',
+  },
+  premiumNavButton: {
+    fontWeight: 600,
+    letterSpacing: 0.3,
   },
   rightSection: {
     position: 'relative',
@@ -387,20 +405,34 @@ if (typeof document !== 'undefined') {
       nav {
         padding: 12px 16px !important;
         flex-wrap: wrap;
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 200 !important;
       }
       .mobileMenuButton {
-        display: block !important;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
         order: 3;
       }
       .centerSection {
         display: none !important;
         width: 100%;
         flex-direction: column;
-        order: 4;
-        margin-top: 12px;
+        order: 5;
+        margin-top: 8px;
+        gap: 4px !important;
+        padding-bottom: 8px;
       }
       .centerSection[style*="flex"] {
         display: flex !important;
+      }
+      .centerSection button {
+        width: 100%;
+        text-align: left !important;
+        padding: 12px 16px !important;
+        border-radius: 8px !important;
+        font-size: 15px !important;
       }
       .profileInfo {
         display: none !important;

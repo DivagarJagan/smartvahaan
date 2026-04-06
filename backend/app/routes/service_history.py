@@ -104,12 +104,21 @@ def get_all_service_history(
     limit: int = 50
 ):
     """Get all service history records (for current user's vehicles)"""
+    from app.models.vehicle import Vehicle
     
-    services = db.query(ServiceHistory).offset(skip).limit(limit).all()
+    # Get user's vehicles
+    user_vehicles = db.query(Vehicle.id).filter(Vehicle.user_id == user["id"]).all()
+    vehicle_ids = [v[0] for v in user_vehicles]
+    
+    if not vehicle_ids:
+        return {"services": [], "total": 0}
+        
+    services = db.query(ServiceHistory).filter(ServiceHistory.vehicle_id.in_(vehicle_ids)).offset(skip).limit(limit).all()
+    total = db.query(ServiceHistory).filter(ServiceHistory.vehicle_id.in_(vehicle_ids)).count()
     
     return {
         "services": services,
-        "total": db.query(ServiceHistory).count()
+        "total": total
     }
 
 @router.put("/{service_id}")

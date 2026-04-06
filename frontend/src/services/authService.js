@@ -18,6 +18,7 @@ const login = async ({ email, password, role }) => {
     return { email, role, token: access_token };
   } catch (error) {
     console.error('Login error:', error);
+    localStorage.removeItem('authToken');
     // Fallback to mock login if backend is unavailable
     localStorage.setItem('userEmail', email);
     localStorage.setItem('userRole', role);
