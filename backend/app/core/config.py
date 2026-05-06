@@ -11,6 +11,9 @@ class Settings:
     JWT_ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = 60
     
+    # Redis Configuration
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
     # CORS Configuration
     CORS_ORIGINS = os.getenv(
         "CORS_ORIGINS",

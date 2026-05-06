@@ -99,303 +99,204 @@ export default function GarageMapPage() {
     }
   }
 
-  const startLiveLocation = () => {
+  // ── Haversine distance helper (km) ───────────────────────────────────────────
+  const distKm = (lat1, lng1, lat2, lng2) => {
+    const R = 6371, toR = d => d * Math.PI / 180
+    const dLat = toR(lat2 - lat1), dLng = toR(lng2 - lng1)
+    const a = Math.sin(dLat/2)**2 + Math.cos(toR(lat1)) * Math.cos(toR(lat2)) * Math.sin(dLng/2)**2
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
+
+  // ── Step 1: IP geolocation — fast, gives correct country/city ─────────────────
+  const fetchIpLocation = async () => {
+    // Try ipapi.co first
+    try {
+      const res = await fetch("https://ipapi.co/json/")
+      const data = await res.json()
+      if (data.latitude && data.longitude && !data.error) {
+        return { lat: parseFloat(data.latitude), lng: parseFloat(data.longitude) }
+      }
+    } catch { /* ignore */ }
+    // Fallback: ip-api.com
+    try {
+      const res2 = await fetch("http://ip-api.com/json/?fields=lat,lon,status")
+      const data2 = await res2.json()
+      if (data2.status === "success" && data2.lat && data2.lon) {
+        return { lat: data2.lat, lng: data2.lon }
+      }
+    } catch { /* ignore */ }
+    return null
+  }
+
+  // ── Main location strategy ────────────────────────────────────────────────────
+  // 1. Show IP location immediately (correct country, no permission needed)
+  // 2. Then try GPS; only accept if within 500 km of IP fix (rejects London default)
+  const startLiveLocation = async () => {
     setGpsLoading(true)
     setGeoError(null)
-    if (!navigator.geolocation) {
-      setUserLocation({ lat: 11.0601, lng: 77.1084 }) // last-resort fallback
+
+    // ── Phase 1: IP location (fast, runs first) ───────────────────────────────
+    const ipLoc = await fetchIpLocation()
+    if (ipLoc) {
+      setUserLocation(ipLoc)
       setGpsLoading(false)
-      return
     }
+
+    // ── Phase 2: GPS refinement ───────────────────────────────────────────────
+    if (!navigator.geolocation) return
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const newLoc = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: Math.round(position.coords.accuracy),
-        }
+        const gpsLat = position.coords.latitude
+        const gpsLng = position.coords.longitude
 
-        setUserLocation(newLoc)
-        setGpsLoading(false)
-
-        // Then start watching for changes
-        watchIdRef.current = navigator.geolocation.watchPosition(
-          (pos) => {
-            const wLat = pos.coords.latitude
-            const wLng = pos.coords.longitude
-            setUserLocation({ lat: wLat, lng: wLng })
-          },
-          () => {},
-          { enableHighAccuracy: true, maximumAge: 0 }
-        )
-
-        // Silently update backend with live location
-        api.post("/api/garages/update-location", {
-          latitude: newLoc.lat,
-          longitude: newLoc.lng,
-        }).catch(() => { })
-      },
-      async (err) => {
-        console.warn("GPS error:", err.message)
-        // Set an explicit UI warning
-        setGeoError("True GPS was blocked by your browser. Displaying approximate city location.")
-        try {
-          // Fallback to IP geolocation if GPS is denied or unavailable
-          const res = await fetch("https://ipapi.co/json/")
-          const data = await res.json()
-          if (data.latitude && data.longitude) {
-            setUserLocation({ lat: parseFloat(data.latitude), lng: parseFloat(data.longitude) })
-            setGpsLoading(false)
-            return
+        // Only trust GPS if it agrees with IP-location within 500 km.
+        // The browser's "network location" can silently return London (51.5, -0.1)
+        // even for users in India — accept GPS only if it is geographically plausible.
+        const MAX_PLAUSIBLE_DRIFT_KM = 500
+        if (ipLoc) {
+          const drift = distKm(ipLoc.lat, ipLoc.lng, gpsLat, gpsLng)
+          if (drift > MAX_PLAUSIBLE_DRIFT_KM) {
+            console.warn(`GPS rejected: ${drift.toFixed(0)} km from IP fix. Keeping IP location.`);
+            // Don't set user location here, let the IP location be the source of truth
+            return;
           }
-        } catch (ipErr) {
-          console.warn("IP Geolocation fallback failed:", ipErr)
         }
-        setUserLocation(prev => prev || { lat: 11.0601, lng: 77.1084 }) // ultimate fallback
+        // If we reach here, GPS is trusted
+        setUserLocation({ lat: gpsLat, lng: gpsLng })
+        setGpsLoading(false)
+        setGeoError(null)
+      },
+      (error) => {
+        console.error("Geolocation error:", error)
+        setGeoError(
+          `Location access denied or unavailable (Error: ${error.code}). Showing approximate location.`
+        )
+        if (!ipLoc) { // Only if IP fallback also failed
+          setUserLocation({ lat: 11.0168, lng: 76.9558 }) // Default to Coimbatore
+        }
         setGpsLoading(false)
       },
       {
-        enableHighAccuracy: false, // Fastest possible initial fix
-        timeout: 8000, // wait slightly longer to give user time to click allow
-        maximumAge: 0,
+        enableHighAccuracy: true,
+        timeout: 15000, // 15 seconds
+        maximumAge: 0, // Force fresh reading
       }
     )
   }
 
-  // Manual "Refresh" button — clears cache and restarts watch
-  const getUserLocation = () => {
-    Object.keys(sessionStorage)
-      .filter(k => k.startsWith("sv_garages_"))
-      .forEach(k => sessionStorage.removeItem(k))
-    setGpsLoading(true)
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current)
-    }
-    startLiveLocation()
-  }
+  const handleRadiusChange = (event) => {
+    setSearchRadius(Number(event.target.value))
+}
 
-  const [searchQuery, setSearchQuery] = useState("")
-
-  const handleManualLocationChange = (newLoc) => {
-    // If user dragged the pin or clicked the map, stop live GPS updates so it doesn't snap back
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current)
-      watchIdRef.current = null
-    }
-    setUserLocation(newLoc)
-  }
-
-  const handleCitySearch = async (e) => {
-    e.preventDefault()
-    if (!searchQuery.trim()) return
-    
-    setGpsLoading(true)
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`)
-      const data = await res.json()
-      if (data && data.length > 0) {
-        const { lat, lon } = data[0]
-        if (watchIdRef.current !== null) {
-          navigator.geolocation.clearWatch(watchIdRef.current)
-          watchIdRef.current = null
-        }
-        setUserLocation({ lat: parseFloat(lat), lng: parseFloat(lon) })
-      } else {
-        alert("Location not found. Try a different city name.")
-      }
-    } catch (err) {
-      console.warn("Failed to search location.")
-    }
-    setGpsLoading(false)
-  }
-
-  const styles = {
-    container: {
-      maxWidth: "1400px",
-      margin: "0 auto",
-      padding: "30px 20px",
-      backgroundColor: colors.background,
-      minHeight: "100vh"
-    },
-    header: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: "30px",
-      flexWrap: "wrap",
-      gap: "20px"
-    },
-    title: {
-      fontSize: "32px",
-      fontWeight: "bold",
-      color: colors.text,
-      margin: 0
-    },
-    subtitle: {
-      fontSize: "14px",
-      color: colors.textSecondary,
-      margin: "5px 0 0 0"
-    },
-    controlPanel: {
-      display: "flex",
-      gap: "15px",
-      alignItems: "center",
-      flexWrap: "wrap"
-    },
-    radiusControl: {
-      display: "flex",
-      alignItems: "center",
-      gap: "10px"
-    },
-    radiusLabel: {
-      fontSize: "14px",
-      fontWeight: "bold",
-      color: colors.text
-    },
-    radiusInput: {
-      padding: "8px 12px",
-      fontSize: "14px",
-      border: `1px solid ${colors.border}`,
-      borderRadius: "6px",
-      width: "80px"
-    },
-    radiusUnit: {
-      fontSize: "14px",
-      color: colors.textSecondary
-    },
-    button: {
-      padding: "10px 20px",
-      fontSize: "14px",
-      fontWeight: "bold",
-      border: "none",
-      borderRadius: "6px",
-      cursor: "pointer",
-      backgroundColor: "#1976d2",
-      color: "white",
-      transition: "all 0.3s"
-    },
-    infoBox: {
-      backgroundColor: "#e3f2fd",
-      border: "1px solid #1976d2",
-      borderRadius: "8px",
-      padding: "15px 20px",
-      marginBottom: "20px",
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      flexWrap: "wrap",
-      gap: "15px"
-    },
-    infoText: {
-      fontSize: "14px",
-      color: "#1565c0",
-      margin: 0
-    }
-  }
-
-  if (premiumLoading) {
-    return <LoadingSpinner />
-  }
-
-  if (!isPremium) {
-    return (
-      <div style={styles.container}>
-        <div style={{
-          backgroundColor: "#fff3e0",
-          border: "1px solid #ff9800",
-          borderRadius: "8px",
-          padding: "20px",
-          marginTop: "20px",
-          color: "#e65100"
-        }}>
-          <h2 style={{ marginTop: 0, marginBottom: "8px" }}>Premium Access Required</h2>
-          <p style={{ marginTop: 0, marginBottom: "16px" }}>{statusMessage}</p>
-          <button
-            style={styles.button}
-            onClick={() => navigate("/premium-features")}
-          >
-            Go to Premium Plans
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <div>
-          <h1 style={styles.title}>🗺️ Garage Map</h1>
-          <p style={styles.subtitle}>Find nearby car service centers and garages</p>
-        </div>
-
-        <div style={styles.controlPanel}>
-          <form style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginRight: "15px" }} onSubmit={handleCitySearch}>
-            <input
-              type="text"
-              placeholder="Search City or Location..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ ...styles.radiusInput, width: "180px" }}
-            />
-            <button type="submit" style={{...styles.button, backgroundColor: "#546e7a"}}>
-              🔍 Search
-            </button>
-          </form>
-
-          <div style={styles.radiusControl}>
-            <label style={styles.radiusLabel}>Radius:</label>
-            <input
-              type="number"
-              min="1"
-              max="50"
-              value={searchRadius}
-              onChange={(e) => setSearchRadius(Math.max(1, parseInt(e.target.value) || 10))}
-              style={styles.radiusInput}
-            />
-            <span style={styles.radiusUnit}>km</span>
-          </div>
-
-          <button
-            style={styles.button}
-            onClick={getUserLocation}
-            title="Try again if location access was denied or failed. If denied, allow location in your browser settings."
-          >
-            📍 My Location
-          </button>
-        </div>
-      </div>
-
-      {userLocation && (
-        <>
-          <div style={styles.infoBox}>
-            <p style={styles.infoText}>
-              📍 Showing garages within {searchRadius} km of your location ({userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)})
-            </p>
-            <button
-              style={{ ...styles.button, backgroundColor: "#4caf50" }}
-              onClick={() => navigate("/premium-features")}
-            >
-              Manage Subscription
-            </button>
-          </div>
-
-          {geoError && (
-            <div style={{ backgroundColor: "#ffebee", border: "1px solid #ffcdd2", color: "#c62828", padding: "12px 16px", borderRadius: "8px", marginBottom: "20px", fontSize: "14px", fontWeight: "600" }}>
-              ⚠️ {geoError} To fix this, click the Lock Icon (🔒) or Location Icon in your browser's address bar and allow location access, then click "My Location".
-            </div>
-          )}
-
-          <MapErrorBoundary resetKey={`${userLocation.lat}-${userLocation.lng}-${searchRadius}`}>
-            <GarageMap 
-              userLocation={userLocation} 
-              radius={searchRadius} 
-              onLocationChange={handleManualLocationChange}
-            />
-          </MapErrorBoundary>
-        </>
-      )}
+return (
+  <div className="garage-page-wrap" style={{ padding: "20px", maxWidth: "1200px", margin: "0 auto" }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: "20px",
+        flexWrap: "wrap",
+        gap: "10px",
+      }}
+    >
+      <h1 style={{ color: colors.text, margin: 0 }}>Find Nearby Garages</h1>
+      <button
+        onClick={() => navigate("/dashboard")}
+        style={{
+          padding: "8px 15px",
+          backgroundColor: colors.primary,
+          color: "white",
+          border: "none",
+          borderRadius: "5px",
+          cursor: "pointer",
+        }}
+      >
+        Back to Dashboard
+      </button>
     </div>
-  )
+
+    {premiumLoading ? (
+      <LoadingSpinner message="Checking subscription..." />
+    ) : !isPremium ? (
+      <div
+        style={{
+          padding: "20px",
+          backgroundColor: colors.backgroundOffset,
+          borderRadius: "8px",
+          textAlign: "center",
+          color: colors.text,
+        }}
+      >
+        <p>{statusMessage}</p>
+        <button
+          onClick={() => navigate("/subscription")}
+          style={{
+            marginTop: "10px",
+            padding: "10px 20px",
+            backgroundColor: colors.primary,
+            color: "white",
+            border: "none",
+            borderRadius: "5px",
+            cursor: "pointer",
+          }}
+        >
+          Go Premium
+        </button>
+      </div>
+    ) : (
+      <>
+        <div
+          style={{
+            marginBottom: "15px",
+            display: "flex",
+            alignItems: "center",
+            gap: "15px",
+          }}
+        >
+          <label htmlFor="radius-slider" style={{ color: colors.text }}>
+            Search Radius: <strong>{searchRadius} km</strong>
+          </label>
+          <input
+            id="radius-slider"
+            type="range"
+            min="5"
+            max="50"
+            step="5"
+            value={searchRadius}
+            onChange={handleRadiusChange}
+            style={{ flexGrow: 1 }}
+          />
+        </div>
+
+        {geoError && (
+          <p style={{ color: "#ff7675", marginBottom: "15px" }}>
+            {geoError}
+          </p>
+        )}
+
+        <MapErrorBoundary resetKey={Date.now()}>
+          {gpsLoading ? (
+            <LoadingSpinner message="Acquiring your location..." />
+          ) : userLocation ? (
+            <GarageMap
+              userLocation={userLocation}
+              searchRadius={searchRadius}
+              apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
+            />
+          ) : (
+            <p>Could not determine your location.</p>
+          )}
+        </MapErrorBoundary>
+      </>
+    )}
+    <style>{`
+      @media (max-width: 600px) {
+        .garage-page-wrap { padding: 12px !important; }
+        .garage-page-wrap h1 { font-size: 20px !important; }
+      }
+    `}</style>
+  </div>
+)
 }

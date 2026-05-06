@@ -1,271 +1,261 @@
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
-from pydantic import BaseModel # type: ignore
-from sqlalchemy.orm import Session # type: ignore
+from pydantic import BaseModel  # type: ignore
+from sqlalchemy.orm import Session  # type: ignore
 from math import radians, sin, cos, sqrt, atan2
+from datetime import datetime
+import httpx
+from fastapi_cache.decorator import cache
+
 from app.core.dependencies import get_db, get_current_user
 from app.models.user import User
-from app.models.garage import Garage
 
 router = APIRouter(prefix="/api/garages", tags=["garages"])
+
+# ── Overpass API endpoint ─────────────────────────────────────────────────────
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_TIMEOUT =  300 # seconds
 
 
 class UpdateLocationRequest(BaseModel):
     latitude: float
     longitude: float
 
-def get_distance_km(lat1, lon1, lat2, lon2):
-    """Calculate distance between two coordinates using Haversine formula (in km)"""
-    R = 6371  # Earth's radius in kilometers
-    
-    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    
-    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1-a))
-    distance = R * c
-    
-    return distance
 
-def init_demo_garages(db: Session):
-    """Initialize demo garage data for Coimbatore area"""
-    demo_garages = [
-        {
-            "name": "Cartech Auto Service",
-            "address": "123, Trichy Rd, Sungam, Coimbatore, Tamil Nadu 641018",
-            "latitude": 11.0050,
-            "longitude": 76.9821,
-            "phone": "+91-9994445566",
-            "email": "cartech.cbe@example.com",
-            "services": "General Service,Car Wash,Wheel Alignment,Denting & Painting,AC Repair",
-            "rating": 4.5,
-            "is_certified": True,
-            "opening_time": "09:00",
-            "closing_time": "19:00"
-        },
-        {
-            "name": "Pitstop Car & Bike Service",
-            "address": "45, Avinashi Rd, near Hope College, Peelamedu, Coimbatore, Tamil Nadu 641004",
-            "latitude": 11.0288,
-            "longitude": 77.0239,
-            "phone": "+91-8883337777",
-            "email": "pitstop.cbe@example.com",
-            "services": "General Service,Bike Service,Oil Change,Tyre Service,Brake Service",
-            "rating": 4.2,
-            "is_certified": False,
-            "opening_time": "08:00",
-            "closing_time": "20:00"
-        },
-        {
-            "name": "Autobahn Car Service",
-            "address": "7, V.C.V Layout, R.S. Puram, Coimbatore, Tamil Nadu 641002",
-            "latitude": 11.0095,
-            "longitude": 76.9536,
-            "phone": "+91-9876512345",
-            "email": "autobahn.rspuram@example.com",
-            "services": "Premium Car Service,Engine Diagnostics,Suspension Tuning,Performance Upgrades",
-            "rating": 4.8,
-            "is_certified": True,
-            "opening_time": "09:30",
-            "closing_time": "18:30"
-        },
-        {
-            "name": "Racer's Edge Automotive",
-            "address": "21, Race Course Road, Coimbatore, Tamil Nadu 641018",
-            "latitude": 11.0027,
-            "longitude": 76.9727,
-            "phone": "+91-9123456789",
-            "email": "racersedge.cbe@example.com",
-            "services": "Sports Car Tuning,Exhaust Systems,Brake Upgrades,ECU Remapping,Track Day Prep",
-            "rating": 4.9,
-            "is_certified": True,
-            "opening_time": "10:00",
-            "closing_time": "19:00"
-        },
-        {
-            "name": "24/7 Auto Rescue",
-            "address": "NH 544, Ettimadai, Coimbatore, Tamil Nadu 641105",
-            "latitude": 10.8983,
-            "longitude": 76.9033,
-            "phone": "+91-9876554321",
-            "email": "autorescue.247@example.com",
-            "services": "24/7 Towing,Roadside Assistance,Flat Tire Repair,Battery Jumpstart,Emergency Fuel",
-            "rating": 4.6,
-            "is_certified": False,
-            "opening_time": "00:00",
-            "closing_time": "23:59"
-        },
-        {
-            "name": "Bosch Car Service - Sree Vatsa Automotives",
-            "address": "10/3, Mettupalayam Road, Kavundampalayam, Coimbatore, Tamil Nadu 641030",
-            "latitude": 11.0452,
-            "longitude": 76.9528,
-            "phone": "+91-422-245-1111",
-            "email": "bosch.sreevatsa@example.com",
-            "services": "Bosch Certified Service,Advanced Diagnostics,Fuel Injection Service,ABS & Airbag Repair",
-            "rating": 4.7,
-            "is_certified": True,
-            "opening_time": "09:00",
-            "closing_time": "19:00"
-        },
-        {
-            "name": "Mahindra First Choice Services",
-            "address": "345, Thadagam Main Rd, Edayarpalayam, Coimbatore, Tamil Nadu 641025",
-            "latitude": 11.0321,
-            "longitude": 76.9284,
-            "phone": "+91-95009-99123",
-            "email": "mfc.edayarpalayam@example.com",
-            "services": "Multi-Brand Car Service,Periodic Maintenance,Body Repair,Cashless Insurance Claims",
-            "rating": 4.4,
-            "is_certified": True,
-            "opening_time": "09:00",
-            "closing_time": "18:00"
-        },
-        {
-            "name": "MyTVS - Ganapathy",
-            "address": "No 1, Sathy Rd, near Ramakrishna Kalyana Mandapam, Ganapathy, Coimbatore, Tamil Nadu 641006",
-            "latitude": 11.0398,
-            "longitude": 76.9952,
-            "phone": "+91-80690-56789",
-            "email": "mytvs.ganapathy@example.com",
-            "services": "24-hour Roadside Assistance,Car Detailing,Battery & Tire Services,Insurance Renewals",
-            "rating": 4.3,
-            "is_certified": True,
-            "opening_time": "08:30",
-            "closing_time": "20:30"
-        },
-        {
-            "name": "GoMechanic - The Automotive Company",
-            "address": "15, Nehru St, Ram Nagar, Gandhipuram, Coimbatore, Tamil Nadu 641009",
-            "latitude": 11.0183,
-            "longitude": 76.9697,
-            "phone": "+91-83969-83969",
-            "email": "gomechanic.gandhipuram@example.com",
-            "services": "Car Wash,Denting & Painting,AC Service,Wheel Care,Custom Repairs",
-            "rating": 4.1,
-            "is_certified": False,
-            "opening_time": "09:00",
-            "closing_time": "21:00"
-        },
-        {
-            "name": "3M Car Care - RS Puram",
-            "address": "36, E Venkatasamy Rd, R.S. Puram, Coimbatore, Tamil Nadu 641002",
-            "latitude": 11.0082,
-            "longitude": 76.9501,
-            "phone": "+91-98940-12345",
-            "email": "3m.rspuram@example.com",
-            "services": "Car Detailing,Ceramic Coating,Paint Protection Film,Interior Cleaning,Underbody Coating",
-            "rating": 4.8,
-            "is_certified": True,
-            "opening_time": "10:00",
-            "closing_time": "20:00"
-        }
+# ── Haversine distance ────────────────────────────────────────────────────────
+def get_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate distance between two coordinates using Haversine formula (km)."""
+    R = 6371
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    return R * 2 * atan2(sqrt(a), sqrt(1 - a))
+
+
+# ── Overpass query builder ────────────────────────────────────────────────────
+def build_overpass_query(lat: float, lng: float, radius_m: int) -> str:
+    return f"""
+[out:json][timeout:{OVERPASS_TIMEOUT}];
+(
+  node["amenity"="car_repair"](around:{radius_m},{lat},{lng});
+  way["amenity"="car_repair"](around:{radius_m},{lat},{lng});
+  node["shop"="car_repair"](around:{radius_m},{lat},{lng});
+  way["shop"="car_repair"](around:{radius_m},{lat},{lng});
+  node["amenity"="car_service"](around:{radius_m},{lat},{lng});
+  way["amenity"="car_service"](around:{radius_m},{lat},{lng});
+  node["amenity"="car_wash"](around:{radius_m},{lat},{lng});
+  way["amenity"="car_wash"](around:{radius_m},{lat},{lng});
+  node["shop"="tyres"](around:{radius_m},{lat},{lng});
+  node["shop"="auto_parts"](around:{radius_m},{lat},{lng});
+);
+out center;
+"""
+
+
+# ── OSM element parser ────────────────────────────────────────────────────────
+def parse_osm_element(el: dict, user_lat: float, user_lng: float) -> Optional[dict]:
+    lat = el.get("lat") or (el.get("center") or {}).get("lat")
+    lng = el.get("lon") or (el.get("center") or {}).get("lon")
+    if lat is None or lng is None:
+        return None
+
+    tags = el.get("tags", {})
+    name = (
+        tags.get("name")
+        or tags.get("name:en")
+        or tags.get("brand")
+        or tags.get("operator")
+        or "Auto Repair Shop"
+    )
+
+    address_parts = [
+        tags.get("addr:housenumber"),
+        tags.get("addr:street"),
+        tags.get("addr:suburb"),
+        tags.get("addr:city"),
+        tags.get("addr:state"),
+    ]
+    address = ", ".join(p for p in address_parts if p) or "Address not listed"
+
+    phone = tags.get("phone") or tags.get("contact:phone") or tags.get("contact:mobile")
+    website = tags.get("website") or tags.get("contact:website")
+    email = tags.get("email") or tags.get("contact:email")
+    opening_hours = tags.get("opening_hours")
+
+    # Build services list
+    services: List[str] = []
+    amenity = tags.get("amenity", "")
+    shop = tags.get("shop", "")
+    if amenity == "car_wash" or shop == "car_wash":
+        services.append("Car Wash")
+    if amenity in ("car_repair", "car_service") or shop == "car_repair":
+        services.append("Car Repair")
+    if tags.get("service:vehicle:motorcycle"):
+        services.append("Motorcycle Repair")
+    if tags.get("service:vehicle:bicycle"):
+        services.append("Bicycle Repair")
+    if shop == "tyres":
+        services.append("Tyre Service")
+    if shop == "auto_parts":
+        services.append("Auto Parts")
+    if tags.get("repair"):
+        services.append(tags["repair"].title())
+    if tags.get("service"):
+        services.append(tags["service"].title())
+    if not services:
+        services.append("Auto Repair")
+
+    dist = round(get_distance_km(user_lat, user_lng, lat, lng), 2)
+    is_certified = bool(
+        tags.get("workshop:certification") or tags.get("brand:wikidata")
+    )
+
+    return {
+        "id": str(el["id"]),
+        "name": name,
+        "address": address,
+        "latitude": lat,
+        "longitude": lng,
+        "phone": phone,
+        "email": email,
+        "website": website,
+        "opening_hours": opening_hours,
+        "services": list(dict.fromkeys(services)),  # deduplicate, preserve order
+        "is_certified": is_certified,
+        "distance_km": dist,
+        "source": "OpenStreetMap",
+    }
+
+
+# ── Fetch from Overpass ───────────────────────────────────────────────────────
+async def fetch_real_garages(lat: float, lng: float, radius_km: float) -> List[dict]:
+    """Query Overpass API endpoints and return a parsed, sorted garage list."""
+    radius_m = int(radius_km * 1000)
+    query = build_overpass_query(lat, lng, radius_m)
+    
+    endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.nchc.org.tw/api/interpreter",
     ]
 
-    # Check if garages already exist
-    if db.query(Garage).count() == 0:
-        for garage_data in demo_garages:
-            garage = Garage(**garage_data)
-            db.add(garage)
-        db.commit()
+    async with httpx.AsyncClient(timeout=OVERPASS_TIMEOUT + 5) as client:
+        for url in endpoints:
+            try:
+                # Overpass API expects the query in a URL-encoded 'data' field
+                response = await client.post(
+                    url,
+                    data={"data": query},
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                )
+                
+                if response.status_code == 429: # Too Many Requests
+                    print(f"Rate limited by {url}, trying next endpoint.")
+                    continue
+
+                response.raise_for_status()
+                data = response.json()
+                
+                elements = data.get("elements", [])
+                if not elements:
+                    continue # Try next endpoint if results are empty
+
+                garages = [parse_osm_element(el, lat, lng) for el in elements]
+                garages = [g for g in garages if g is not None]
+                
+                if garages:
+                    garages.sort(key=lambda g: g["distance_km"])
+                    return garages
+
+            except httpx.HTTPStatusError as exc:
+                print(f"HTTP error with {url}: {exc.response.status_code}")
+                # Continue to next endpoint on server errors
+                if 500 <= exc.response.status_code <= 599:
+                    continue
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                print(f"Request failed for {url}: {str(exc)}")
+                # Continue to next endpoint on connection/timeout errors
+                continue
+            except Exception as exc:
+                print(f"An unexpected error occurred with {url}: {str(exc)}")
+                continue
+
+    # Final fallback if all endpoints fail
+    print("All Overpass API endpoints failed. Returning empty list.")
+    return []
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/nearby")
+@cache(expire=3600)  # Cache for 1 hour
 async def get_nearby_garages(
-    latitude: float,
-    longitude: float,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
     radius_km: float = 10,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Get nearby garages (requires premium subscription)"""
-    
-    # Query the actual user from database
+    """
+    Return real-time nearby garages fetched live from OpenStreetMap (Overpass API).
+    Requires an active premium subscription.
+    If latitude and longitude are not provided, uses the user's last known location.
+    """
+    # ── Premium check ──────────────────────────────────────────────────────────
     user = db.query(User).filter(User.email == current_user.get("email")).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    is_premium = bool(getattr(user, "is_premium", False))
-    premium_until = getattr(user, "premium_until", None)
-    
-    # Check if user is premium
-    if not is_premium:
+    # Use user's stored location if no coordinates are provided
+    if latitude is None or longitude is None:
+        if user.latitude and user.longitude:
+            latitude = user.latitude
+            longitude = user.longitude
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Location not provided and no location stored for user. Please update your location.",
+            )
+
+    if not bool(getattr(user, "is_premium", False)):
         raise HTTPException(
             status_code=403,
-            detail="This feature is only available for premium users. Please upgrade to access garage maps."
+            detail="This feature is only available for premium users. Please upgrade to access garage maps.",
         )
-    
-    # Check if premium is still valid
-    from datetime import datetime
+
+    premium_until = getattr(user, "premium_until", None)
     if premium_until and premium_until < datetime.utcnow():
         raise HTTPException(
             status_code=403,
-            detail="Your premium subscription has expired. Please renew to access this feature."
+            detail="Your premium subscription has expired. Please renew to access this feature.",
         )
-    
-    # Initialize demo data if needed
-    init_demo_garages(db)
-    
-    # Get all garages
-    garages = db.query(Garage).all()
-    
-    # Filter by radius and calculate distance
-    nearby_garages = []
-    for garage in garages:
-        distance = get_distance_km(latitude, longitude, garage.latitude, garage.longitude)
-        if distance <= radius_km:
-            nearby_garages.append({
-                "id": garage.id,
-                "name": garage.name,
-                "address": garage.address,
-                "latitude": garage.latitude,
-                "longitude": garage.longitude,
-                "phone": garage.phone,
-                "email": garage.email,
-                "services": garage.services.split(","),
-                "rating": garage.rating,
-                "is_certified": garage.is_certified,
-                "opening_time": garage.opening_time,
-                "closing_time": garage.closing_time,
-                "distance_km": round(distance, 2)
-            })
-    
-    # Sort by distance
-    nearby_garages.sort(key=lambda x: x["distance_km"])
-    
+
+    # ── Live OSM fetch ────────────────────────────────────────────────────────
+    try:
+        garages = await fetch_real_garages(latitude, longitude, radius_km)
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail="Garage data request timed out. Please try again shortly.",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not fetch real-time garage data: {str(exc)}",
+        )
+
     return {
-        "total_found": len(nearby_garages),
+        "total_found": len(garages),
         "radius_km": radius_km,
         "user_location": {"latitude": latitude, "longitude": longitude},
-        "garages": nearby_garages
+        "source": "OpenStreetMap / Overpass API",
+        "garages": garages,
     }
 
-@router.get("/demo-data")
-async def get_demo_garages(db: Session = Depends(get_db)):
-    """Get all demo garages (public endpoint for testing)"""
-    init_demo_garages(db)
-    garages = db.query(Garage).filter(Garage.is_demo == True).all()
-    
-    return {
-        "total": len(garages),
-        "garages": [
-            {
-                "id": g.id,
-                "name": g.name,
-                "address": g.address,
-                "latitude": g.latitude,
-                "longitude": g.longitude,
-                "phone": g.phone,
-                "email": g.email,
-                "services": g.services.split(","),
-                "rating": g.rating,
-                "is_certified": g.is_certified,
-                "opening_time": g.opening_time,
-                "closing_time": g.closing_time
-            }
-            for g in garages
-        ]
-    }
 
 @router.post("/update-location")
 async def update_user_location(
@@ -273,23 +263,28 @@ async def update_user_location(
     latitude: Optional[float] = Query(default=None),
     longitude: Optional[float] = Query(default=None),
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Update user's current location"""
+    """Update the authenticated user's current GPS location."""
     resolved_latitude = payload.latitude if payload else latitude
     resolved_longitude = payload.longitude if payload else longitude
 
     if resolved_latitude is None or resolved_longitude is None:
-        raise HTTPException(status_code=400, detail="latitude and longitude are required")
+        raise HTTPException(
+            status_code=400, detail="latitude and longitude are required"
+        )
 
-    # Query the actual user from database
     user = db.query(User).filter(User.email == current_user.get("email")).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     setattr(user, "latitude", resolved_latitude)
     setattr(user, "longitude", resolved_longitude)
     db.add(user)
     db.commit()
-    
-    return {"message": "Location updated", "latitude": resolved_latitude, "longitude": resolved_longitude}
+
+    return {
+        "message": "Location updated",
+        "latitude": resolved_latitude,
+        "longitude": resolved_longitude,
+    }

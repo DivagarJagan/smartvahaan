@@ -5,8 +5,6 @@ import { useAuth } from "../context/AuthContext"
 import api from "../services/api"
 import LoadingSpinner from "../components/LoadingSpinner"
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
-
 export default function PremiumFeatures() {
   const navigate = useNavigate()
   const { colors } = useTheme()
@@ -14,6 +12,7 @@ export default function PremiumFeatures() {
   const [subscriptionStatus, setSubscriptionStatus] = useState(null)
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [selectedPlan, setSelectedPlan] = useState(null)
   const [processing, setProcessing] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -80,6 +79,7 @@ export default function PremiumFeatures() {
   const fetchSubscriptionData = async () => {
     try {
       setLoading(true)
+      setError(null)
       
       // Fetch subscription status
       const statusResponse = await api.get(`/api/subscription/status`)
@@ -88,8 +88,9 @@ export default function PremiumFeatures() {
       // Fetch available plans
       const plansResponse = await api.get(`/api/subscription/plans`)
       setPlans(plansResponse.data)
-    } catch (error) {
-      console.error("Error fetching subscription data:", error)
+    } catch (err) {
+      console.error("Error fetching subscription data:", err)
+      // setError(err.response?.data?.detail || err.message || "Failed to load subscription data")
     } finally {
       setLoading(false)
     }
@@ -101,7 +102,7 @@ export default function PremiumFeatures() {
       console.log("Activating demo access...")
       
       const response = await api.post(
-        `/api/subscription/demo-activate`,
+        `/api/subscription/activate-demo`,
         {}
       )
       
@@ -138,9 +139,9 @@ export default function PremiumFeatures() {
     try {
       setProcessing(true)
 
-      // Initiate payment
+      // Initiate payment (api already has base URL, no need to prefix)
       const response = await api.post(
-        `${API_URL}/api/subscription/initiate-payment`,
+        `/api/subscription/initiate-payment`,
         {
           plan_id: selectedPlan.id,
           payment_method: paymentMethod
@@ -148,7 +149,7 @@ export default function PremiumFeatures() {
       )
 
       // In real scenario, redirect to payment gateway
-      // For demo, auto-verify with slightly delay
+      // For demo, auto-verify with slight delay
       setTimeout(() => {
         verifyPayment(response.data.transaction_id)
       }, 2000)
@@ -161,7 +162,7 @@ export default function PremiumFeatures() {
   const verifyPayment = async (transactionId) => {
     try {
       const response = await api.post(
-        `${API_URL}/api/subscription/verify-payment/${transactionId}`,
+        `/api/subscription/verify-payment/${transactionId}`,
         {}
       )
 
@@ -241,7 +242,7 @@ export default function PremiumFeatures() {
       marginBottom: "40px"
     },
     planCard: {
-      backgroundColor: colors.cardBackground,
+      backgroundColor: colors.card,
       border: "2px solid " + colors.border,
       borderRadius: "12px",
       padding: "30px",
@@ -328,7 +329,7 @@ export default function PremiumFeatures() {
       zIndex: 1000
     },
     modalContent: {
-      backgroundColor: colors.cardBackground,
+      backgroundColor: colors.card,
       borderRadius: "12px",
       padding: "30px",
       maxWidth: "500px",
@@ -381,6 +382,22 @@ export default function PremiumFeatures() {
 
   if (loading) {
     return <LoadingSpinner />
+  }
+
+  if (error && !subscriptionStatus) {
+    return (
+      <div style={{ maxWidth: "800px", margin: "80px auto", padding: "40px", textAlign: "center" }}>
+        <div style={{ fontSize: "48px", marginBottom: "20px" }}>⚠️</div>
+        <h2 style={{ color: colors.text, marginBottom: "12px" }}>Unable to Load Premium Features</h2>
+        <p style={{ color: colors.textSecondary, marginBottom: "24px" }}>{error}</p>
+        <button
+          onClick={fetchSubscriptionData}
+          style={{ padding: "12px 28px", background: "#1976d2", color: "#fff", border: "none", borderRadius: "8px", fontSize: "15px", cursor: "pointer", fontWeight: "600" }}
+        >
+          🔄 Retry
+        </button>
+      </div>
+    )
   }
 
   return (

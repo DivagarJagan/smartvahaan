@@ -48,10 +48,24 @@ async def get_subscription_status(
     premium_until = getattr(user, "premium_until", None)
     is_premium = bool(getattr(user, "is_premium", False))
     
+    # Check if premium has expired
+    if is_premium and premium_until and premium_until < datetime.utcnow():
+        # Expire the premium status
+        setattr(user, "is_premium", False)
+        db.add(user)
+        db.commit()
+        is_premium = False
+        premium_until = None
+    
+    days_remaining = 0
+    if is_premium and premium_until:
+        delta = (premium_until - datetime.utcnow()).days
+        days_remaining = max(0, delta)
+    
     return {
         "is_premium": is_premium,
         "premium_until": premium_until,
-        "days_remaining": (premium_until - datetime.utcnow()).days if premium_until else 0
+        "days_remaining": days_remaining
     }
 
 @router.get("/plans")
@@ -68,6 +82,32 @@ async def get_subscription_plans():
             "description": f"Unlimited AI chats, garage maps, and premium features for {plan_info['duration_days']} days"
         })
     return plans
+
+@router.post("/activate-demo")
+async def activate_demo_subscription(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Activate a 10-day free trial for the current user"""
+    user = db.query(User).filter(User.email == current_user.get("email")).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Check if user has already used a demo
+    if user.premium_until and user.premium_until > datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Premium subscription is already active.")
+
+    # Activate 10-day demo
+    user.is_premium = True
+    user.premium_until = datetime.utcnow() + timedelta(days=10)
+    db.add(user)
+    db.commit()
+
+    return {
+        "message": "10-day premium demo activated successfully!",
+        "premium_until": user.premium_until.isoformat(),
+        "days_remaining": 10
+    }
 
 @router.post("/initiate-payment")
 async def initiate_payment(
@@ -162,41 +202,4 @@ async def verify_payment(
         "message": "Premium subscription activated",
         "premium_until": user.premium_until,
         "plan": subscription.plan_type
-    }
-
-@router.post("/demo-activate")
-async def demo_activate_premium(
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """DEMO: Instantly activate premium for testing (remove in production)"""
-    
-    # Query the actual user from database
-    user = db.query(User).filter(User.email == current_user.get("email")).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Activate for 10 days
-    setattr(user, "is_premium", True)
-    setattr(user, "premium_until", datetime.utcnow() + timedelta(days=10))
-    
-    subscription = Subscription(
-        user_id=user.id,
-        plan_type="demo",
-        amount=0,
-        transaction_id=f"DEMO_{user.id}_{int(datetime.utcnow().timestamp())}",
-        status="completed",
-        expired_at=getattr(user, "premium_until"),
-        payment_method="demo"
-    )
-    
-    db.add(subscription)
-    db.add(user)
-    db.commit()
-    
-    return {
-        "message": "Premium activated for demo",
-        "is_premium": True,
-        "premium_until": getattr(user, "premium_until"),
-        "days_remaining": 30
     }

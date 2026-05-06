@@ -6,7 +6,7 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, unique=True, index=True)
+    user_id = Column(Integer, index=True)
     plan_type = Column(String, default="premium")  # premium, pro, etc
     amount = Column(Float)
     currency = Column(String, default="INR")

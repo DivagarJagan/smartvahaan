@@ -3,7 +3,7 @@ import axios from "axios";
 // Use environment variable for API URL, fallback to localhost for development
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
-  timeout: 12000,
+  timeout: 30000, // Increased timeout to 30 seconds
 });
 
 const reAuthenticate = async () => {

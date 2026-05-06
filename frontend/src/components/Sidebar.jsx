@@ -6,16 +6,20 @@ import vehicleService from "../services/vehicleService";
 import serviceHistoryService from "../services/serviceHistoryService";
 import AiAssistant from "./AiAssistant";
 
-const Sidebar = () => {
+const Sidebar = ({ mobileOpen, setMobileOpen }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
   const { colors, isDark } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [vehicleCount, setVehicleCount] = useState(0);
   const [checksCount, setChecksCount] = useState(0);
   const [aiOpen, setAiOpen] = useState(false);
+
+  // Fallback local state if props not provided
+  const [localMobileOpen, setLocalMobileOpen] = useState(false);
+  const isMobileOpen = mobileOpen !== undefined ? mobileOpen : localMobileOpen;
+  const closeMobile = () => setMobileOpen ? setMobileOpen(false) : setLocalMobileOpen(false);
 
   if (!user) return null;
 
@@ -62,16 +66,16 @@ const Sidebar = () => {
   return (
     <>
       {/* Mobile overlay */}
-      {mobileOpen && (
+      {isMobileOpen && (
         <div 
           style={styles.overlay} 
-          onClick={() => setMobileOpen(false)}
+          onClick={closeMobile}
         />
       )}
 
       <aside style={{
         ...styles.sidebar,
-        transform: mobileOpen ? 'translateX(0)' : undefined,
+        transform: isMobileOpen ? 'translateX(0)' : undefined,
       }}>
         {/* Logo Section */}
         <div style={styles.logoSection}>
@@ -99,7 +103,7 @@ const Sidebar = () => {
           </button>
           {/* Mobile close button */}
           <button 
-            onClick={() => setMobileOpen(false)}
+            onClick={closeMobile}
             style={styles.mobileCloseButton}
             className="mobileCloseButton"
           >
@@ -138,7 +142,7 @@ const Sidebar = () => {
               key={item.path}
               onClick={() => {
                 navigate(item.path);
-                setMobileOpen(false);
+                closeMobile();
               }}
               style={{
                 ...styles.menuItem,
@@ -156,10 +160,11 @@ const Sidebar = () => {
         {!collapsed && user.role === "user" && (
           <div style={styles.statsSection}>
             <div style={styles.statCard}>
+              <div style={styles.statIcon}>🚗</div>
               <div style={styles.statInfo}>
                 <div style={styles.statValue}>{vehicleCount}</div>
                 <div style={styles.statLabel}>Vehicles</div>
-            </div>
+              </div>
           </div>
           <div style={styles.statCard}>
             <div style={styles.statIcon}>✅</div>

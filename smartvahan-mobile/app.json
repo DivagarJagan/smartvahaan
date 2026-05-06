@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "smartvahan-mobile",
+    "name": "SmartVahaan",
     "slug": "smartvahan-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,17 +13,41 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "SmartVahaan uses your location to find nearby garages and service centers.",
+        "NSLocationAlwaysUsageDescription": "SmartVahaan uses your location to find nearby garages and service centers.",
+        "NSCameraUsageDescription": "SmartVahaan may use the camera to scan vehicle documents.",
+        "NSPhotoLibraryUsageDescription": "SmartVahaan may access your photo library to upload vehicle photos."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#1976d2"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.INTERNET",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ],
+      "package": "com.smartvahaan.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "SmartVahaan uses your location to find nearby garages.",
+          "locationWhenInUsePermission": "SmartVahaan uses your location to find nearby garages."
+        }
+      ]
+    ]
   }
 }

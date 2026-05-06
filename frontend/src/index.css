@@ -42,8 +42,8 @@ textarea {
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -51,12 +51,12 @@ textarea {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #888;
+  background: #bbb;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #888;
 }
 
 /* Utility classes */
@@ -70,18 +70,58 @@ textarea {
   text-align: center;
 }
 
-.mt-1 {
-  margin-top: 10px;
+.mt-1 { margin-top: 10px; }
+.mt-2 { margin-top: 20px; }
+.mb-1 { margin-bottom: 10px; }
+.mb-2 { margin-bottom: 20px; }
+
+/* ── Mobile Responsive Base ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Main layout */
+  .main-content {
+    margin-left: 0 !important;
+  }
+
+  /* Prevent horizontal scroll */
+  body, #root {
+    overflow-x: hidden;
+  }
+
+  /* Page padding on mobile */
+  .container {
+    padding: 12px;
+  }
+
+  /* Tables scroll on mobile */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Cards & grids */
+  [style*="grid-template-columns"] {
+    /* Overridden per-component where needed */
+  }
+
+  /* Larger tap targets */
+  button, a {
+    min-height: 36px;
+  }
+
+  /* Input fields full-width on mobile */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  select,
+  textarea {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
 }
 
-.mt-2 {
-  margin-top: 20px;
-}
-
-.mb-1 {
-  margin-bottom: 10px;
-}
-
-.mb-2 {
-  margin-bottom: 20px;
+@media (max-width: 480px) {
+  .container {
+    padding: 8px;
+  }
 }

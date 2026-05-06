@@ -1,6 +1,7 @@
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import { useEffect, useRef, useState, useCallback } from "react"
+import api from "../services/api"
 
 // ── Leaflet icon fix ──────────────────────────────────────────────────────────
 delete L.Icon.Default.prototype._getIconUrl
@@ -23,17 +24,10 @@ const userIcon = new L.Icon({
   popupAnchor: [1, -40], shadowSize: [41, 41],
 })
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
-const toRad   = (d) => (d * Math.PI) / 180
-const toMins  = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m }
+// ── Utilities (still used by frontend normaliser) ─────────────────────────────
+const toMins = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m }
 
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371, dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1)
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-// Basic OSM opening_hours parser
+// Basic OSM opening_hours parser — applied to hours strings returned by backend
 function checkOpenNow(hoursStr) {
   if (!hoursStr) return null
   const s = hoursStr.trim()
@@ -63,73 +57,31 @@ function formatPhone(phone) {
   return phone.replace(/[^\d+\-() ]/g, "").trim()
 }
 
-function servicesList(tags) {
-  const list = []
-  if (tags["service:vehicle:car"])      list.push("Car Repair")
-  if (tags["service:vehicle:motorcycle"]) list.push("Motorcycle")
-  if (tags["service:vehicle:bicycle"])  list.push("Bicycle")
-  if (tags["repair"])                   list.push(tags["repair"])
-  if (tags["service"])                  list.push(tags["service"])
-  if (tags["amenity"] === "car_wash")   list.push("Car Wash")
-  if (list.length === 0)                list.push("Auto Repair")
-  return [...new Set(list)]
-}
-
-// ── Overpass API fetch ─────────────────────────────────────────────────────────
-async function fetchOverpassGarages(lat, lng, radiusKm) {
-  const r = radiusKm * 1000
-  const query = `
-[out:json][timeout:20];
-(
-  node["amenity"="car_repair"](around:${r},${lat},${lng});
-  way["amenity"="car_repair"](around:${r},${lat},${lng});
-  node["shop"="car_repair"](around:${r},${lat},${lng});
-  way["shop"="car_repair"](around:${r},${lat},${lng});
-  node["amenity"="car_service"](around:${r},${lat},${lng});
-  way["amenity"="car_service"](around:${r},${lat},${lng});
-  node["amenity"="car_wash"](around:${r},${lat},${lng});
-);
-out center;`
-
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
-    method:  "POST",
-    body:    query,
-    headers: { "Content-Type": "text/plain" },
+// ── Backend garage fetch (Overpass via authenticated API) ─────────────────────
+// Normalises backend response into the shape expected by the map/card renderer.
+async function fetchGaragesFromBackend(lat, lng, radiusKm) {
+  const res = await api.get("/api/garages/nearby", {
+    params: { latitude: lat, longitude: lng, radius_km: radiusKm },
   })
-  if (!res.ok) throw new Error("Overpass API failed")
-  const data = await res.json()
-  return data.elements || []
-}
-
-function parseOSMElements(elements, userLat, userLng) {
-  return elements
-    .map((el) => {
-      const lat = el.lat ?? el.center?.lat
-      const lng = el.lon ?? el.center?.lon
-      if (!lat || !lng) return null
-      const t = el.tags || {}
-      const phone = formatPhone(t.phone || t["contact:phone"] || t["contact:mobile"])
-      const isOpen = checkOpenNow(t.opening_hours)
-      const dist   = Math.round(haversine(userLat, userLng, lat, lng) * 10) / 10
-      return {
-        id:            String(el.id),
-        name:          t.name || t["name:en"] || "Auto Repair Shop",
-        lat, lng, dist,
-        address:       [t["addr:housenumber"], t["addr:street"], t["addr:city"]].filter(Boolean).join(", ") || "Address not listed",
-        phone,
-        website:       t.website || t["contact:website"] || null,
-        opening_hours: t.opening_hours || null,
-        isOpen,
-        services:      servicesList(t),
-        brand:         t.brand || null,
-        operator:      t.operator || null,
-        email:         t.email || t["contact:email"] || null,
-        wheelchair:    t.wheelchair === "yes",
-        certified:     t["workshop:certification"] || t["brand:wikidata"] ? true : false,
-      }
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.dist - b.dist)
+  const garages = res.data?.garages || []
+  return garages.map((g) => ({
+    id:            g.id,
+    name:          g.name,
+    lat:           g.latitude,
+    lng:           g.longitude,
+    dist:          g.distance_km,
+    address:       g.address || "Address not listed",
+    phone:         g.phone ? formatPhone(g.phone) : null,
+    website:       g.website || null,
+    opening_hours: g.opening_hours || null,
+    isOpen:        checkOpenNow(g.opening_hours),
+    services:      Array.isArray(g.services) ? g.services : ["Auto Repair"],
+    brand:         null,
+    operator:      null,
+    email:         g.email || null,
+    wheelchair:    false,
+    certified:     g.is_certified || false,
+  }))
 }
 
 // ── Session cache ─────────────────────────────────────────────────────────────
@@ -175,7 +127,7 @@ function reviewCount(id) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 }, radius = 10 }) {
+export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 }, searchRadius: radius = 10 }) {
   const [garages,        setGarages]        = useState([])
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState(null)
@@ -196,12 +148,12 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
     const cached = getCache(key)
     if (cached) { setGarages(cached); setLoading(false); return }
     try {
-      const elements = await fetchOverpassGarages(userLocation.lat, userLocation.lng, radius)
-      const parsed   = parseOSMElements(elements, userLocation.lat, userLocation.lng)
+      const parsed = await fetchGaragesFromBackend(userLocation.lat, userLocation.lng, radius)
       setCache(key, parsed)
       setGarages(parsed)
     } catch (e) {
-      setError("Could not load real-time garages. Check your internet connection.")
+      const msg = e?.response?.data?.detail || "Could not load real-time garages. Check your connection."
+      setError(msg)
     } finally { setLoading(false) }
   }, [userLocation.lat, userLocation.lng, radius])
 
@@ -245,7 +197,7 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
 
     // User marker
     L.marker([userLocation.lat, userLocation.lng], { icon: userIcon, zIndexOffset: 1000 })
-      .bindPopup(`<b style="color:#1976d2;">📍 Your Location</b><br/>${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`)
+      .bindPopup(`<b style="color:#1976d2;">📍 My Location</b><br/>${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`)
       .addTo(markerLayerRef.current)
 
     // Garage markers
@@ -261,7 +213,7 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
             ${g.phone ? `<b>Phone:</b> <a href="tel:${g.phone}">${g.phone}</a><br/>` : ""}
             <b>Services:</b> ${g.services.join(", ")}<br/>
             <div style="margin-top:6px;display:flex;gap:6px;">
-              <a href="https://www.google.com/maps/dir/?api=1&destination=${g.lat},${g.lng}" target="_blank"
+              <a href="https://www.google.com/maps/search/?api=1&query=${g.lat},${g.lng}" target="_blank"
                 style="padding:4px 10px;background:#1976d2;color:#fff;border-radius:5px;text-decoration:none;font-size:11px;font-weight:700;">
                 🗺️ Navigate
               </a>
@@ -321,7 +273,7 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
           )}
         </div>
         <div style={{ borderRadius:14, overflow:"hidden", boxShadow:"0 4px 20px rgba(0,0,0,0.12)", border:"1px solid #e0e0e0" }}>
-          <div ref={mapContainerRef} style={{ height:480, width:"100%", display:"block" }} />
+          <div ref={mapContainerRef} className="garage-map-container" style={{ height:480, width:"100%", display:"block" }} />
         </div>
       </div>
 
@@ -363,7 +315,7 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
       </h2>
 
       {loading ? (
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))", gap:16 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))", gap:16 }} className="garage-cards-grid">
           {[1,2,3,4].map(i => <SkeletonCard key={i} />)}
         </div>
       ) : filtered.length === 0 ? (
@@ -373,7 +325,7 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
           <p style={{ fontSize:13, margin:"8px 0 0", color:"#aaa" }}>Try increasing the search radius above.</p>
         </div>
       ) : (
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))", gap:16 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))", gap:16 }} className="garage-cards-grid">
           {filtered.map((g) => {
             const selected  = selectedId === g.id
             const expanded  = expandedId === g.id
@@ -496,7 +448,16 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
         </div>
       )}
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 600px) {
+          .garage-map-container { height: 260px !important; }
+          .garage-cards-grid { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 400px) {
+          .garage-map-container { height: 220px !important; }
+        }
+      `}</style>
     </div>
   )
 }

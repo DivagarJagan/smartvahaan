@@ -1,6 +1,18 @@
+import sys, io
+# Force UTF-8 on Windows consoles so emoji in log messages don't crash startup
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf-16'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from sqlalchemy import inspect, text # type: ignore
+import asyncio
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi_cache.decorator import cache
+from redis import asyncio as aioredis
 
 # Import database components first
 from app.database.session import engine
@@ -81,6 +93,20 @@ app.include_router(telemetry.router)
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup"""
+    # Initialize cache — fall back to in-memory if Redis is not available
+    try:
+        redis_url = getattr(settings, 'REDIS_URL', None)
+        if redis_url:
+            redis = aioredis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+            await redis.ping()  # Test the connection
+            FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
+            logger.info("✅ Redis cache initialized successfully.")
+        else:
+            raise ValueError("REDIS_URL not configured")
+    except Exception as e:
+        logger.warning("⚠️  Redis unavailable (%s). Falling back to in-memory cache.", e)
+        FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+
     # Create database tables after all models are loaded
     Base.metadata.create_all(bind=engine)
 
@@ -126,12 +152,17 @@ async def startup_event():
     logger.info("   - Phone Sensor Integration")
     logger.info("   - Two-Wheeler Specialization")
     logger.info("="*60)
-    print("\n" + "🎉 BACKEND RUNNING SUCCESS FULLY!\n" + "="*60 + "\n")
+    logger.info("[OK] BACKEND RUNNING SUCCESSFULLY!")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Run on application shutdown"""
+    await FastAPICache.clear()
+    logger.info("👋 Cache cleared.")
     logger.info("👋 SmartVahaan Backend shutting down...")
+    # Properly close the database connection engine
+    engine.dispose()
+    logger.info("✅ Database connection closed.")
 
 @app.get("/")
 def root():
