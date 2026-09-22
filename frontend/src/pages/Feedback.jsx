@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import feedbackService from '../services/feedbackService';
 import { useTheme } from '../context/ThemeContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { trackActivity, ActivityTypes } from '../utils/activityTracker';
 
 const Feedback = () => {
   const { colors } = useTheme();
@@ -56,7 +57,6 @@ const Feedback = () => {
       await feedbackService.submitFeedback({ rating, category, message });
       
       // Track feedback submission activity
-      const { trackActivity, ActivityTypes } = await import('../utils/activityTracker');
       trackActivity(
         ActivityTypes.FEEDBACK_SUBMITTED,
         'Feedback Submitted',
