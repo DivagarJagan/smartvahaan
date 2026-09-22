@@ -11,18 +11,34 @@ L.Icon.Default.mergeOptions({
   shadowUrl:     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 })
 
-const garageIcon = new L.Icon({
-  iconUrl:     "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png",
-  shadowUrl:   "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
-  iconSize:    [25, 41], iconAnchor: [12, 41],
-  popupAnchor: [1, -34], shadowSize: [41, 41],
-})
-const userIcon = new L.Icon({
-  iconUrl:     "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png",
-  shadowUrl:   "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
-  iconSize:    [30, 46], iconAnchor: [15, 46],
-  popupAnchor: [1, -40], shadowSize: [41, 41],
-})
+// ── Inline SVG marker icon generator (100% reliable, no external image downloads) ──
+const createMarkerIcon = (color, emoji) => {
+  const svgHtml = `<div style="
+    position: relative;
+    width: 34px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  ">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 42" width="34" height="42" style="filter: drop-shadow(0px 3px 6px rgba(0,0,0,0.3));">
+      <path fill="${color}" stroke="#ffffff" stroke-width="2" d="M16 0C7.163 0 0 7.163 0 16c0 12 16 26 16 26s16-14 16-26C32 7.163 24.837 0 16 0z"/>
+      <circle cx="16" cy="15" r="7" fill="#ffffff"/>
+    </svg>
+    <span style="position: absolute; top: 6px; font-size: 11px;">${emoji}</span>
+  </div>`
+
+  return L.divIcon({
+    html: svgHtml,
+    className: "custom-leaflet-pin",
+    iconSize: [34, 42],
+    iconAnchor: [17, 42],
+    popupAnchor: [0, -40],
+  })
+}
+
+const garageIcon = createMarkerIcon("#d32f2f", "🔧")
+const userIcon = createMarkerIcon("#1976d2", "📍")
 
 // ── Utilities (still used by frontend normaliser) ─────────────────────────────
 const toMins = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m }
@@ -86,7 +102,10 @@ async function fetchGaragesFromBackend(lat, lng, radiusKm) {
 
 // ── Session cache ─────────────────────────────────────────────────────────────
 function cacheKey(lat, lng, r) { return `sv_garages_${lat.toFixed(3)}_${lng.toFixed(3)}_${r}` }
-function getCache(k) { try { return JSON.parse(sessionStorage.getItem(k)) } catch { return null } }
+function getCache(k) {
+  // Never use cached garage data — always fetch fresh real-time results
+  return null
+}
 function setCache(k, d) { try { sessionStorage.setItem(k, JSON.stringify(d)) } catch {} }
 
 // ── Skeleton card ─────────────────────────────────────────────────────────────
@@ -127,7 +146,7 @@ function reviewCount(id) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 }, searchRadius: radius = 10 }) {
+export default function GarageMap({ userLocation = { lat: 12.9716, lng: 77.5946 }, searchRadius: radius = 10 }) {
   const [garages,        setGarages]        = useState([])
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState(null)
@@ -176,12 +195,18 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
     return () => { map.remove(); mapRef.current = null; markerLayerRef.current = null }
   }, []) // eslint-disable-line
 
-  // ── Update center when location changes ────────────────────────────────────
+  // ── Update center and invalidate size when location changes ───────────────
   useEffect(() => {
     if (!mapRef.current) return
     mapRef.current.setView([userLocation.lat, userLocation.lng], 13)
-    requestAnimationFrame(() => mapRef.current?.invalidateSize())
-  }, [userLocation.lat, userLocation.lng])
+    const handleResize = () => mapRef.current?.invalidateSize()
+    window.addEventListener("resize", handleResize)
+    const timer = setTimeout(() => mapRef.current?.invalidateSize(), 300)
+    return () => {
+      window.removeEventListener("resize", handleResize)
+      clearTimeout(timer)
+    }
+  }, [userLocation.lat, userLocation.lng, loading])
 
   // ── Draw markers ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -213,7 +238,7 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
             ${g.phone ? `<b>Phone:</b> <a href="tel:${g.phone}">${g.phone}</a><br/>` : ""}
             <b>Services:</b> ${g.services.join(", ")}<br/>
             <div style="margin-top:6px;display:flex;gap:6px;">
-              <a href="https://www.google.com/maps/search/?api=1&query=${g.lat},${g.lng}" target="_blank"
+              <a href="https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${g.lat},${g.lng}&travelmode=driving" target="_blank"
                 style="padding:4px 10px;background:#1976d2;color:#fff;border-radius:5px;text-decoration:none;font-size:11px;font-weight:700;">
                 🗺️ Navigate
               </a>
@@ -412,7 +437,7 @@ export default function GarageMap({ userLocation = { lat: 11.0601, lng: 77.1084 
 
                 {/* ── Action Buttons ── */}
                 <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
-                  <a href={`https://www.google.com/maps/dir/?api=1&destination=${g.lat},${g.lng}`}
+                  <a href={`https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${g.lat},${g.lng}&travelmode=driving`}
                     target="_blank" rel="noreferrer"
                     onClick={e => e.stopPropagation()}
                     style={{ flex:1, padding:"7px 10px", background:"#1976d2", color:"#fff", border:"none",

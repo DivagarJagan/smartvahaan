@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr # type: ignore
 from typing import Optional
+from datetime import datetime
 
 class UserLogin(BaseModel):
     email: str
@@ -18,6 +19,8 @@ class UserProfile(BaseModel):
     email: EmailStr
     phone: str
     role: str
+    is_premium: bool = False
+    premium_until: Optional[datetime] = None
 
 class UserProfileUpdate(BaseModel):
     first_name: Optional[str] = None

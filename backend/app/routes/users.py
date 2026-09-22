@@ -21,7 +21,9 @@ def get_profile(user: dict = Depends(get_current_user), db: Session = Depends(ge
         "last_name": db_user.last_name or "",
         "email": db_user.email,
         "phone": db_user.phone or "",
-        "role": db_user.role
+        "role": db_user.role,
+        "is_premium": bool(db_user.is_premium),
+        "premium_until": db_user.premium_until
     }
 
 @router.put("/profile", response_model=UserProfile)
@@ -52,5 +54,7 @@ def update_profile(
         "last_name": db_user.last_name or "",
         "email": db_user.email,
         "phone": db_user.phone or "",
-        "role": db_user.role
+        "role": db_user.role,
+        "is_premium": bool(db_user.is_premium),
+        "premium_until": db_user.premium_until
     }

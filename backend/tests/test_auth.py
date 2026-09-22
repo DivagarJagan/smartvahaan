@@ -1,5 +1,4 @@
-def test_login():
-    assert Truefrom fastapi.testclient import TestClient # type: ignore
+from fastapi.testclient import TestClient # type: ignore
 from app.main import app
 
 client = TestClient(app) # type: ignore

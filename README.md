@@ -263,7 +263,7 @@ start-fullstack.bat
 
 # Or manually
 cd backend && venv\Scripts\activate && python -m uvicorn app.main:app --reload
-cd frontend && npm run dev
+start-fullstack.bat
 
 # Install dependencies
 cd frontend && npm install

@@ -29,7 +29,7 @@ def test_ai_prediction():
 
     # Predict maintenance
     response = client.get(
-        "/ai/predict",
+        "/ai/maintenance/suggestions",
         headers={"Authorization": f"Bearer {token}"},
     )
 

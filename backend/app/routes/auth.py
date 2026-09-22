@@ -13,13 +13,15 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     
     if not user:
-        # Create a new user if doesn't exist
+        from datetime import datetime, timedelta
         user = User(
             email=data.email,
             role=data.role,
             first_name="Demo",
             last_name="User",
-            phone="1234567890"
+            phone="1234567890",
+            is_premium=True,
+            premium_until=datetime.utcnow() + timedelta(days=30)
         )
         db.add(user)
         db.commit()

@@ -88,6 +88,16 @@ export const AuthProvider = ({ children }) => {
     if (updated.phone) {
       localStorage.setItem('userPhone', updated.phone);
     }
+    if (updated.is_premium !== undefined) {
+      localStorage.setItem('isPremium', String(updated.is_premium));
+    }
+    if (updated.premium_until !== undefined) {
+      if (updated.premium_until) {
+        localStorage.setItem('premiumUntil', updated.premium_until);
+      } else {
+        localStorage.removeItem('premiumUntil');
+      }
+    }
   };
 
   const logout = () => {

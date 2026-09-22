@@ -173,7 +173,7 @@ export default function GarageMapPage() {
           `Location access denied or unavailable (Error: ${error.code}). Showing approximate location.`
         )
         if (!ipLoc) { // Only if IP fallback also failed
-          setUserLocation({ lat: 11.0168, lng: 76.9558 }) // Default to Coimbatore
+          setUserLocation({ lat: 12.9716, lng: 77.5946 }) // Default to Bengaluru
         }
         setGpsLoading(false)
       },
