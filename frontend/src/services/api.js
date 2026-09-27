@@ -1,8 +1,10 @@
 import axios from "axios";
 
 // Use environment variable for API URL, fallback to localhost for development
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
+  baseURL: API_URL,
   timeout: 45000, // 45s — garages endpoint can take up to 25s (Overpass + Nominatim)
 });
 
@@ -15,7 +17,7 @@ const reAuthenticate = async () => {
   }
 
   const response = await axios.post(
-    `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/auth/login`,
+    `${API_URL}/auth/login`,
     {
       email,
       password: "default",

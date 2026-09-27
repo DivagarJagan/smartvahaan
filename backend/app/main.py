@@ -99,7 +99,7 @@ async def startup_event():
         redis_url = getattr(settings, 'REDIS_URL', None)
         if redis_url:
             redis = aioredis.from_url(redis_url, encoding="utf-8", decode_responses=True)
-            await redis.ping()  # Test the connection
+            await redis.ping()  # type: ignore # Test the connection
             FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
             logger.info("✅ Redis cache initialized successfully.")
         else:
