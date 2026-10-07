@@ -146,7 +146,15 @@ function reviewCount(id) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function GarageMap({ userLocation = { lat: 12.9716, lng: 77.5946 }, searchRadius: radius = 10 }) {
+export default function GarageMap({
+  userLocation = { lat: 12.9716, lng: 77.5946 },
+  searchRadius: radius = 10,
+  locationAddress = "",
+  locationSource = "GPS",
+  isLocating = false,
+  onDetectLocation,
+  onLocationChange,
+}) {
   const [garages,        setGarages]        = useState([])
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState(null)
@@ -159,6 +167,17 @@ export default function GarageMap({ userLocation = { lat: 12.9716, lng: 77.5946 
   const markerLayerRef  = useRef(null)
   const circleRef       = useRef(null)
   const markersMapRef   = useRef({})   // id → marker, for clicking from card
+
+  const userLocationRef   = useRef(userLocation)
+  const onLocationChangeRef = useRef(onLocationChange)
+
+  useEffect(() => {
+    userLocationRef.current = userLocation
+  }, [userLocation])
+
+  useEffect(() => {
+    onLocationChangeRef.current = onLocationChange
+  }, [onLocationChange])
 
   // ── Fetch real garages ─────────────────────────────────────────────────────
   const loadGarages = useCallback(async () => {
@@ -182,31 +201,80 @@ export default function GarageMap({ userLocation = { lat: 12.9716, lng: 77.5946 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
     const map = L.map(mapContainerRef.current, {
-      center: [userLocation.lat, userLocation.lng], zoom: 13,
-      preferCanvas: true, zoomControl: true,
+      center: [userLocation.lat, userLocation.lng],
+      zoom: 14,
+      preferCanvas: true,
+      zoomControl: true,
     })
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19, keepBuffer: 4,
+      maxZoom: 19,
+      keepBuffer: 4,
     }).addTo(map)
     markerLayerRef.current = L.layerGroup().addTo(map)
     mapRef.current = map
+
+    // Handle map clicks to set custom location
+    map.on("click", (e) => {
+      const { lat, lng } = e.latlng
+      if (onLocationChangeRef.current) {
+        onLocationChangeRef.current({ lat, lng, source: "Map Click" })
+      }
+    })
+
+    // Floating recenter control
+    const locateControl = L.control({ position: "topright" })
+    locateControl.onAdd = () => {
+      const btn = L.DomUtil.create("button", "leaflet-bar")
+      btn.innerHTML = "🎯"
+      btn.title = "Center on My Location"
+      btn.style.width = "36px"
+      btn.style.height = "36px"
+      btn.style.background = "#ffffff"
+      btn.style.border = "2px solid rgba(0,0,0,0.2)"
+      btn.style.borderRadius = "6px"
+      btn.style.fontSize = "18px"
+      btn.style.cursor = "pointer"
+      btn.style.display = "flex"
+      btn.style.alignItems = "center"
+      btn.style.justifyContent = "center"
+      btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.2)"
+
+      btn.onclick = (ev) => {
+        ev.stopPropagation()
+        if (mapRef.current && userLocationRef.current) {
+          mapRef.current.flyTo([userLocationRef.current.lat, userLocationRef.current.lng], 15, {
+            duration: 0.8,
+          })
+        }
+      }
+      return btn
+    }
+    locateControl.addTo(map)
+
     requestAnimationFrame(() => map.invalidateSize())
-    return () => { map.remove(); mapRef.current = null; markerLayerRef.current = null }
+    const timer = setTimeout(() => map.invalidateSize(), 300)
+
+    return () => {
+      clearTimeout(timer)
+      map.remove()
+      mapRef.current = null
+      markerLayerRef.current = null
+    }
   }, []) // eslint-disable-line
 
   // ── Update center and invalidate size when location changes ───────────────
   useEffect(() => {
     if (!mapRef.current) return
-    mapRef.current.setView([userLocation.lat, userLocation.lng], 13)
+    mapRef.current.setView([userLocation.lat, userLocation.lng], mapRef.current.getZoom() || 14)
     const handleResize = () => mapRef.current?.invalidateSize()
     window.addEventListener("resize", handleResize)
-    const timer = setTimeout(() => mapRef.current?.invalidateSize(), 300)
+    const timer = setTimeout(() => mapRef.current?.invalidateSize(), 200)
     return () => {
       window.removeEventListener("resize", handleResize)
       clearTimeout(timer)
     }
-  }, [userLocation.lat, userLocation.lng, loading])
+  }, [userLocation.lat, userLocation.lng])
 
   // ── Draw markers ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -215,15 +283,41 @@ export default function GarageMap({ userLocation = { lat: 12.9716, lng: 77.5946 
     markersMapRef.current = {}
     if (circleRef.current) { circleRef.current.remove(); circleRef.current = null }
 
+    // Search radius boundary
     circleRef.current = L.circle([userLocation.lat, userLocation.lng], {
-      radius: radius * 1000, color: "#1976d2", fillColor: "#1976d2",
-      fillOpacity: 0.05, weight: 2, dashArray: "6 4",
+      radius: radius * 1000,
+      color: "#1976d2",
+      fillColor: "#1976d2",
+      fillOpacity: 0.05,
+      weight: 2,
+      dashArray: "6 4",
     }).addTo(mapRef.current)
 
-    // User marker
-    L.marker([userLocation.lat, userLocation.lng], { icon: userIcon, zIndexOffset: 1000 })
-      .bindPopup(`<b style="color:#1976d2;">📍 My Location</b><br/>${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`)
+    // User marker - draggable with rich popup
+    const userMarker = L.marker([userLocation.lat, userLocation.lng], {
+      icon: userIcon,
+      zIndexOffset: 1000,
+      draggable: true,
+      title: "📍 Your Location (Drag to move)",
+    })
+      .bindPopup(`
+        <div style="font-size:12px;min-width:210px;line-height:1.6;">
+          <b style="color:#1976d2;font-size:13px;">📍 My Location (${locationSource || "GPS"})</b><br/>
+          <span style="color:#222;font-weight:600;display:block;margin:3px 0;">${locationAddress || "Current Pin"}</span>
+          <span style="color:#777;font-size:11px;">${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}</span>
+          <div style="margin-top:8px;padding:5px 8px;background:#e0f2fe;color:#0369a1;border-radius:6px;font-size:11px;">
+            💡 <b>Tip:</b> Drag this pin or click anywhere on the map to set a new location.
+          </div>
+        </div>
+      `)
       .addTo(markerLayerRef.current)
+
+    userMarker.on("dragend", (e) => {
+      const { lat, lng } = e.target.getLatLng()
+      if (onLocationChangeRef.current) {
+        onLocationChangeRef.current({ lat, lng, source: "Custom Pin" })
+      }
+    })
 
     // Garage markers
     garages.forEach((g) => {
@@ -256,8 +350,10 @@ export default function GarageMap({ userLocation = { lat: 12.9716, lng: 77.5946 
     if (garages.length > 0) {
       const allCoords = [[userLocation.lat, userLocation.lng], ...garages.map(g => [g.lat, g.lng])]
       mapRef.current.fitBounds(L.latLngBounds(allCoords), { padding: [40, 40], maxZoom: 15, animate: true })
+    } else {
+      mapRef.current.setView([userLocation.lat, userLocation.lng], 13, { animate: true })
     }
-  }, [garages, userLocation.lat, userLocation.lng, radius])
+  }, [garages, userLocation.lat, userLocation.lng, radius, locationAddress, locationSource])
 
   // Click card → open marker popup
   const focusMarker = (g) => {
@@ -282,20 +378,25 @@ export default function GarageMap({ userLocation = { lat: 12.9716, lng: 77.5946 
 
       {/* ── MAP ── */}
       <div style={{ marginBottom: 24 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-          <h3 style={{ margin:0, fontSize:17, color:"#1a1a1a", fontWeight:700 }}>🗺️ Live Garage Map</h3>
-          {loading && (
-            <span style={{ fontSize:12, color:"#1976d2", display:"flex", alignItems:"center", gap:5 }}>
-              <span style={{ width:13, height:13, border:"2px solid #cde", borderTop:"2px solid #1976d2",
-                borderRadius:"50%", display:"inline-block", animation:"spin 0.75s linear infinite" }} />
-              Fetching real-time garages...
-            </span>
-          )}
-          {!loading && !error && (
-            <span style={{ fontSize:12, color:"#4caf50", fontWeight:600 }}>
-              ✅ {garages.length} real garages found within {radius} km
-            </span>
-          )}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <h3 style={{ margin:0, fontSize:17, color:"#1a1a1a", fontWeight:700 }}>🗺️ Live Garage Map</h3>
+            {loading && (
+              <span style={{ fontSize:12, color:"#1976d2", display:"flex", alignItems:"center", gap:5 }}>
+                <span style={{ width:13, height:13, border:"2px solid #cde", borderTop:"2px solid #1976d2",
+                  borderRadius:"50%", display:"inline-block", animation:"spin 0.75s linear infinite" }} />
+                Fetching real-time garages...
+              </span>
+            )}
+            {!loading && !error && (
+              <span style={{ fontSize:12, color:"#4caf50", fontWeight:600 }}>
+                ✅ {garages.length} real garages found within {radius} km
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize:12, color:"#64748b", display:"flex", alignItems:"center", gap:4 }}>
+            <span>💡 <b>Tip:</b> Click map or drag 📍 pin to set location</span>
+          </div>
         </div>
         <div style={{ borderRadius:14, overflow:"hidden", boxShadow:"0 4px 20px rgba(0,0,0,0.12)", border:"1px solid #e0e0e0" }}>
           <div ref={mapContainerRef} className="garage-map-container" style={{ height:480, width:"100%", display:"block" }} />
